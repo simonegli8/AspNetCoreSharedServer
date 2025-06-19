@@ -10,21 +10,29 @@ When the configuration is changed, changes are applied on the fly. The applicati
 {
   "Applications": [
     {
-      "Name": "MyApp", // Name of the application
-      "Assembly": "Path/To/ASPNETCoreApp.dll", // Path to the ASP.NET Core application DLL
-      "Arguments": "", // Optional arguments to pass to the application
-      "Urls": "http://original-domain.org", // The original URLs Apache or Nginx will listen on
-      "ListenUrls": "http://localhost", // The URLs AspNetCoreSharedServer will listen on, and that you will proxy to from Apache or Nginx
-      "IdleTimeout": 300, // Time in seconds after which the application will be stopped if idle
-      "Recycle"": 1200, // Time in seconds after which the application will be recycled
-      "Environment": {  // Environment variables to set for the application
+      "Name": "MyApp",
+      "Assembly": "Path/To/ASPNETCoreApp.dll",
+      "Arguments": "",
+      "Urls": "http://original-domain.org",
+      "ListenUrls": "http://localhost",
+      "IdleTimeout": 300,
+      "Recycle": 1200,
+      "Environment": {
         "ASPNETCORE_ENVIRONMENT": "Production"
       }
     }
   ]
 }
 ```
+- The Name specifies the name of the application. It must be unique.
+- Assembly denotes the path to the ASP.NET Core application DLL.
+- Arguments are optional command line arguments passed to the application.
+- Urls is the original URL that the application will respond to. This are the urls as received by the proxy server.
+- ListenUrls are the URLs that this Application will listen on. This is where the proxy server will forward requests to.
+- IdleTimeout is the time in seconds after which the application will be stopped when it is idle.
+- Recycle is the time in seconds after which the application will be restarted, regardless of activity.
+- Environment is a dictionary of environment variables that will be set for the application when it is started.
 
 After you have defined your applications in the applications.json file, you can proxy to the sockets specified in ListenUrls 
 from Apache or Nginx. The original Urls that Apache or Nginx serve will be passed to Kestrel as a environment varibale
-ORIGINAL_URLS from the Urls parameter in application.json.
+ORIGINAL_URLS from the Urls parameter in applications.json.
