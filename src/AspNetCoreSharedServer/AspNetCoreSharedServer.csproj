@@ -1,0 +1,25 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Worker">
+
+    <PropertyGroup>
+        <TargetFramework>net8.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <RootNamespace>AspNetCoreSharedServer</RootNamespace>
+        <AssemblyName>AspNetCoreSharedServer</AssemblyName>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <Compile Remove="AppAssemblyLoadContext.cs" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <None Include="AppAssemblyLoadContext.cs" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Include="MedallionShell" Version="1.6.2" />
+        <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.1" />
+        <PackageReference Include="Mono.Posix.NETStandard" Version="1.0.0" />
+        <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    </ItemGroup>
+</Project>

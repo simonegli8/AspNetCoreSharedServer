@@ -1,0 +1,199 @@
+﻿
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Net;
+using System.Net.Sockets;
+using System.Text;
+using System.Threading.Tasks;
+using System.Diagnostics;
+using System.Buffers;
+
+namespace AspNetCoreSharedServer;
+
+public class Receiver
+{
+	public const int BufferSize = 4 * 1024;
+
+	public async Task<TcpClient> Connect(int port)
+	{
+		if (port > -1)
+		{
+			var client = new TcpClient();
+			var cancel = new CancellationTokenSource();
+			cancel.CancelAfter(30000);
+
+			try
+			{
+				await client.ConnectAsync(new IPEndPoint(IPAddress.Loopback, port), cancel.Token);
+			}
+			catch (Exception ex)
+			{
+			}
+			while (!client.Connected)
+			{
+				await Task.Delay(10, cancel.Token);
+				try
+				{
+					await client.ConnectAsync(new IPEndPoint(IPAddress.Loopback, port), cancel.Token);
+				}
+				catch (Exception ex)
+				{
+				}
+			}
+			return client;
+		}
+		return null;
+	}
+	public async Task<TcpClient> HttpDest() {
+		return await Connect(HttpPort);
+	}
+	public async Task<TcpClient> HttpsDest()
+	{
+		return await Connect(HttpsPort);
+	}
+	public int HttpPort = -1, HttpsPort = -1;
+	public UdpClient QuicHttpDest, QuicHttpsDest;
+	public long Ticks = 0;
+	public DateTime Started = DateTime.Now;
+	public DateTime LastWork => DateTime.FromBinary(Interlocked.Read(ref Ticks));
+	Server Server;
+	Process? Kestrel;
+	public CancellationTokenSource Cancel = new CancellationTokenSource();
+
+	public Receiver(Server server)
+	{
+		Server = server;
+		//if (!Directory.Exists("/run/aspnet")) Directory.CreateDirectory("/run/aspnet");
+
+		var ticks = DateTime.Now.ToBinary();
+
+		if (Server.HasHttp) HttpPort = FindFreePort();
+		if (Server.HasHttps) HttpsPort = FindFreePort();
+
+		if (Server.SupportQuic)
+		{
+			if (HttpPort > -1) QuicHttpDest = new UdpClient(HttpPort);
+			if (HttpsPort > -1) QuicHttpsDest = new UdpClient(HttpsPort);
+		}
+
+		var info = new ProcessStartInfo("dotnet");
+		info.WorkingDirectory = Path.GetDirectoryName(Server.Assembly);
+		info.Arguments = $"\"{Server.Assembly}\"{(!string.IsNullOrEmpty(Server.Arguments) ? "" : " " + Server.Arguments)}";
+		info.CreateNoWindow = false;
+		var urls = new StringBuilder();
+		if (Server.HasHttp) urls.Append($"http://127.0.0.1:{HttpPort}");
+		if (Server.HasHttps)
+		{
+			if (urls.Length > 0) urls.Append(';');
+			urls.Append($"https://127.0.0.1:{HttpsPort}");
+		}
+		foreach (var key in Server.Environment.Keys)
+		{
+			info.Environment[key] = Server.Environment[key];
+		}
+		info.Environment["ORIGINAL_URLS"] = Server.OriginalUrls ?? "";
+		info.Environment["ASPNETCORE_URLS"] = urls.ToString();
+		info.RedirectStandardError = info.RedirectStandardOutput = false;
+		info.RedirectStandardInput = false;
+		info.UseShellExecute = false;
+		info.WindowStyle = ProcessWindowStyle.Normal;
+		Kestrel = Process.Start(info);
+
+		Ticks = DateTime.Now.ToBinary();
+
+		if (Server.Recycle != TimeSpan.Zero && Server.IdleTimeout != TimeSpan.Zero)
+			Task.Run(async () => await CheckTimeout());
+	}
+	public void Shutdown()
+	{
+		if (Kestrel != null)
+		{
+			if (!Kestrel.HasExited)
+			{
+				SignalSender.SendSigint(Kestrel); // Send SIGINT to gracefully stop Kestrel
+				lock (Server) Server.Receiver = null; // Clear the receiver reference to prevent further processing
+				Task.Run(async () =>
+				{
+					await Task.Delay(6000);
+					Cancel.Cancel();
+				});
+			}
+			Kestrel = null;
+		}
+	}
+
+	public static int FindFreePort()
+	{
+		int port = 0;
+		Socket socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+		try
+		{
+			IPEndPoint localEP = new IPEndPoint(IPAddress.Any, 0);
+			socket.Bind(localEP);
+			localEP = (IPEndPoint)socket.LocalEndPoint;
+			port = localEP.Port;
+		}
+		finally
+		{
+			socket.Close();
+		}
+		return port;
+	}
+
+	public async Task CheckTimeout()
+	{
+		do
+		{
+			var now = DateTime.Now;
+			if (Server.IdleTimeout != TimeSpan.Zero && now - LastWork > Server.IdleTimeout ||
+				Server.Recycle != TimeSpan.Zero && now - Started > Server.Recycle)
+			{
+				Shutdown();
+				return;
+			}
+			await Task.Delay(5000);
+		} while (Server.Cancel.IsCancellationRequested == false);
+		
+		if (Server.Cancel.IsCancellationRequested) Shutdown();
+	}
+	public async Task CopyAsync(TcpClient source, TcpClient destination)
+	{
+		if (source == null || destination == null) return;
+
+		using (var srcStream = source.GetStream())
+		using (var destStream = destination.GetStream())
+		{
+			// 3) Start bi‑directional copy tasks
+			var cts = new CancellationTokenSource();
+			var t1 = Pump(srcStream, destStream, cts.Token); // client → server
+			var t2 = Pump(destStream, srcStream, cts.Token); // server → client
+
+			await Task.WhenAny(t1, t2);
+			cts.Cancel();
+			await Task.WhenAll(t1.ContinueWith(t => { }), t2.ContinueWith(t => { }));
+		}
+	}
+
+	static async Task Pump(Stream src, Stream dst, CancellationToken ct)
+	{
+		var buffer = ArrayPool<byte>.Shared.Rent(BufferSize);
+		try
+		{
+			while (true)
+			{
+				int read = await src.ReadAsync(buffer, 0, buffer.Length, ct);
+				if (read == 0)
+					break;          // remote closed
+				await dst.WriteAsync(buffer, 0, read, ct);
+				await dst.FlushAsync(ct);
+			}
+		}
+		catch (OperationCanceledException) { /* expected on shutdown */ }
+		catch (IOException) { /* connection reset */ }
+		finally
+		{
+			ArrayPool<byte>.Shared.Return(buffer);
+		}
+	}
+}

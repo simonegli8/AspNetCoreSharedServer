@@ -1,0 +1,13 @@
+{
+    "Applications": [
+        {
+            "Name": "Test",
+            "ListenUrls": "http://127.0.0.1:10000",
+            "Urls": null,
+            "Assembly": "C:\\GitHub\\WebHostingCP\\HostPanelPro\\Sources\\HostPanelPro.Server\\bin_dotnet\\HostPanelPro.Server.dll",
+            "Arguments": null,
+            "IdleTimeout": "00:00:10",
+            "Recycle": "00:20:00"
+        }
+    ]
+}
