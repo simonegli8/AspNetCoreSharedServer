@@ -80,11 +80,14 @@ public class Receiver
 
 		var info = new ProcessStartInfo();
 		info.WorkingDirectory = Path.GetDirectoryName(Application.Assembly);
-		if (Environment.OSVersion.Platform != PlatformID.Win32NT && Mono.Unix.Native.Syscall.getuid() == 0)
+		if (Environment.OSVersion.Platform != PlatformID.Win32NT && Mono.Unix.Native.Syscall.getuid() == 0 &&
+			!string.IsNullOrEmpty(Application.User))
 		{
+			string groupArg = "";
+			if (!string.IsNullOrEmpty(Application.Group)) groupArg = $"-g  {Application.Group} ";
 			// If running as root, use sudo to drop privileges
 			info.FileName = "sudo";
-			info.Arguments = $"-E -u {Application.User ?? "www-data"} -g {Application.Group ?? "www-data"} -- dotnet \"{Server.Assembly}\"{(!string.IsNullOrEmpty(Server.Arguments) ? "" : " " + Server.Arguments)}";
+			info.Arguments = $"-E -u {Application.User} {groupArg}-- dotnet \"{Server.Assembly}\"{(!string.IsNullOrEmpty(Server.Arguments) ? "" : " " + Server.Arguments)}";
 		}
 		else
 		{
