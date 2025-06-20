@@ -80,7 +80,13 @@ public class Configuration
 	public List<Application> Applications { get; set; } = new List<Application>();
 	public TimeSpan? IdleTimeout { get; set; } = TimeSpan.FromMinutes(5);
 	public TimeSpan? Recycle { get; set; } = TimeSpan.FromMinutes(20);
+	[DefaultValue(false)]
 	public bool EnableHttp3 { get; set; } = true;
+	[DefaultValue(null)]
+	public string? User { get; set; } = null;
+	[DefaultValue(null)]
+	public string? Group { get; set; } = null;	
+
 	[DefaultValue(Command.None)]
 	public Command Command { get; set; } = Command.None;
 	public bool IsShuttingDown = false;
