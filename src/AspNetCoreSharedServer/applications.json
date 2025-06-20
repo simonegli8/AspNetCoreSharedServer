@@ -12,7 +12,7 @@
     },
     {
       "Name": "TestApp",
-      "ListenUrls": "http://127.0.0.1:59006",
+      "ListenUrls": "http://127.0.0.1:59005",
       "Urls": "",
       "Environment": {},
       "Assembly": "C:\\GitHub\\AspNetCoreSharedServer\\src\\AspNetCoreTestApp\\bin\\Debug\\net8.0\\AspNetCoreTestApp.dll",

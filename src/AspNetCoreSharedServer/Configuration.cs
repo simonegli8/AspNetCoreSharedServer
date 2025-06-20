@@ -133,6 +133,8 @@ public class Configuration
 					return;
 				}
 
+				RemoveError();
+
 				IdleTimeout = config.IdleTimeout;
 				Recycle = config.Recycle;
 				EnableHttp3 = config.EnableHttp3;
@@ -261,7 +263,21 @@ public class Configuration
 			Save(disableWatcher);
 		}
 	}
-
+	public void ReportError(string message, Exception ex)
+	{
+		File.WriteAllText(Path.ChangeExtension(ConfigPath, "error"), message + Environment.NewLine + ex.ToString());
+	}
+	public void RemoveError()
+	{
+		var file = Path.ChangeExtension(ConfigPath, "error");
+		if (File.Exists(file)) File.Delete(file);
+	}
+	public string? ReadError()
+	{
+		var file = Path.ChangeExtension(ConfigPath, "error");
+		if (File.Exists(file)) return File.ReadAllText(file);
+		return null;
+	}
 	public void Add(Application app)
 	{
 		using (var mutex = new NamedMutex())

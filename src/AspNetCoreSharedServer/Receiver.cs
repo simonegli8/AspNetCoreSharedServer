@@ -54,8 +54,8 @@ public class Receiver
 	}
 	public int HttpPort = -1, HttpsPort = -1;
 	public UdpClient QuicHttpDest, QuicHttpsDest;
-	public long Ticks = 0;
 	public DateTime Started = DateTime.Now;
+	public long Ticks = DateTime.Now.ToBinary();
 	int KestrelRestarts = 0;
 	const int MaxKestrelRestarts = 9; // Maximum number of times to restart Kestrel before giving up
 	public DateTime LastWork => DateTime.FromBinary(Interlocked.Read(ref Ticks));

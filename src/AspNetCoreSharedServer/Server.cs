@@ -82,31 +82,60 @@ public class Server
 	}
 	public async Task ListenAsync()
 	{
-		if (EnableHttp3)
+		bool exception = false;
+		try
 		{
-			if (httpPort > -1) QuicHttp = new UdpClient(httpPort);
-			if (httpsPort > -1) QuicHttps = new UdpClient(httpsPort);
-		}
+			if (EnableHttp3)
+			{
+				if (httpPort > -1) QuicHttp = new UdpClient(httpPort);
+				if (httpsPort > -1) QuicHttps = new UdpClient(httpsPort);
+			}
 
-		Task? t1 = null, t2 = null, t3 = null, t4 = null;
-		if (HasHttp)
-		{
-			Http = new TcpListener(IPAddress.Loopback, httpPort);
-			t1 = ListenAsync(Http, receiver => receiver.HttpDest());
+			Task? t1 = null, t2 = null, t3 = null, t4 = null;
+			if (HasHttp)
+			{
+				Http = new TcpListener(IPAddress.Loopback, httpPort);
+				t1 = ListenAsync(Http, receiver => receiver.HttpDest());
+			}
+			if (HasHttps)
+			{
+				Http = new TcpListener(IPAddress.Loopback, httpsPort);
+				t2 = ListenAsync(Https, receiver => receiver.HttpsDest());
+			}
+			if (QuicHttp != null) t3 = ListenAsync(QuicHttp, receiver => receiver.QuicHttpDest);
+			if (QuicHttps != null) t4 = ListenAsync(QuicHttps, receiver => receiver.QuicHttpsDest);
+
+			var tasks = new Task?[] { t1, t2, t3, t4 }
+				.Where(t => t != null)
+				.Select(t => t!)
+				.ToArray();
+			await Task.WhenAll(tasks);
 		}
-		if (HasHttps)
+		catch (OperationCanceledException ex)
 		{
-			Http = new TcpListener(IPAddress.Loopback, httpsPort);
-			t2 = ListenAsync(Https, receiver => receiver.HttpsDest());
 		}
-		if (QuicHttp != null) t3 = ListenAsync(QuicHttp, receiver => receiver.QuicHttpDest);
-		if (QuicHttps != null) t4 = ListenAsync(QuicHttps, receiver => receiver.QuicHttpsDest);
-		
-		var tasks = new Task?[] { t1, t2, t3, t4 }
-			.Where(t => t != null)
-			.Select(t => t!)
-			.ToArray();
-		await Task.WhenAll(tasks);
+		catch (SocketException ex)
+		{
+			Logger.LogError(ex, $"{Application.Name}: Socket error while starting server");
+			Configuration.Current.ReportError($"{Application.Name}: Socket error while starting server", ex);
+			exception = true;
+			throw;
+		}
+		catch (Exception ex)
+		{
+			Logger.LogError(ex, $"{Application.Name}: Error while starting server");
+			Configuration.Current.ReportError($"{Application.Name}: Socket error while starting server", ex);
+			exception = true;
+			throw;
+		}
+		finally
+		{
+			if (!exception)
+			{
+				Receiver = StartReceiver();
+				Logger.LogInformation($"{Application.Name} started listening on {ListenUrls}");
+			}
+		}
 	}
 	public void Shutdown()
 	{
@@ -148,7 +177,8 @@ public class Server
 			}
 			catch (SocketException ex)
 			{
-				Console.WriteLine($"Socket error: {ex.Message}");
+				Logger.LogError(ex, "Socket error while accepting TCP client");
+				Configuration.Current.ReportError("Socket error while accepting TCP client", ex);
 			}
 		}
 	}
