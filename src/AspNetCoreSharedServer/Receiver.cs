@@ -14,6 +14,7 @@ namespace AspNetCoreSharedServer;
 public class Receiver
 {
 	public const int BufferSize = 4 * 1024;
+	public ILogger Logger => Configuration.Current.Logger;
 
 	public async Task<TcpClient> Connect(int port)
 	{
@@ -25,7 +26,7 @@ public class Receiver
 
 			try
 			{
-				await client.ConnectAsync(new IPEndPoint(IPAddress.Loopback, port), cancel.Token);
+				await client.ConnectAsync(new IPEndPoint(IPAddress.IPv6Loopback, port), cancel.Token);
 			}
 			catch (Exception ex)
 			{
@@ -71,10 +72,10 @@ public class Receiver
 		if (Server.HasHttp) HttpPort = FindFreePort();
 		if (Server.HasHttps) HttpsPort = FindFreePort();
 
-		if (Server.SupportQuic)
+		if (Server.EnableHttp3)
 		{
-			if (HttpPort > -1) QuicHttpDest = new UdpClient(HttpPort);
-			if (HttpsPort > -1) QuicHttpsDest = new UdpClient(HttpsPort);
+			if (HttpPort > -1) QuicHttpDest = new UdpClient(new IPEndPoint(IPAddress.IPv6Loopback, HttpPort));
+			if (HttpsPort > -1) QuicHttpsDest = new UdpClient(new IPEndPoint(IPAddress.IPv6Loopback, HttpsPort));
 		}
 
 		var info = new ProcessStartInfo("dotnet");
@@ -82,11 +83,11 @@ public class Receiver
 		info.Arguments = $"\"{Server.Assembly}\"{(!string.IsNullOrEmpty(Server.Arguments) ? "" : " " + Server.Arguments)}";
 		info.CreateNoWindow = false;
 		var urls = new StringBuilder();
-		if (Server.HasHttp) urls.Append($"http://127.0.0.1:{HttpPort}");
+		if (Server.HasHttp) urls.Append($"http://[::1]:{HttpPort}");
 		if (Server.HasHttps)
 		{
 			if (urls.Length > 0) urls.Append(';');
-			urls.Append($"https://127.0.0.1:{HttpsPort}");
+			urls.Append($"https://[::1]:{HttpsPort}");
 		}
 		foreach (var key in Server.Environment.Keys)
 		{
@@ -94,6 +95,7 @@ public class Receiver
 		}
 		info.Environment["ORIGINAL_URLS"] = Server.OriginalUrls ?? "";
 		info.Environment["ASPNETCORE_URLS"] = urls.ToString();
+		Logger.LogInformation($"Starting Kestrel on {urls}");
 		info.RedirectStandardError = info.RedirectStandardOutput = false;
 		info.RedirectStandardInput = false;
 		info.UseShellExecute = false;
@@ -101,6 +103,8 @@ public class Receiver
 		Kestrel = Process.Start(info);
 
 		Ticks = DateTime.Now.ToBinary();
+
+		if (Kestrel.HasExited) Logger.LogError($"{Server.Application.Name}: Failed to start Kestrel.");
 
 		if (Server.Recycle != TimeSpan.Zero && Server.IdleTimeout != TimeSpan.Zero)
 			Task.Run(async () => await CheckTimeout());
@@ -146,8 +150,8 @@ public class Receiver
 		do
 		{
 			var now = DateTime.Now;
-			if (Server.IdleTimeout != TimeSpan.Zero && now - LastWork > Server.IdleTimeout ||
-				Server.Recycle != TimeSpan.Zero && now - Started > Server.Recycle)
+			if (Server.IdleTimeout != null && now - LastWork > Server.IdleTimeout ||
+				Server.Recycle != null && now - Started > Server.Recycle)
 			{
 				Shutdown();
 				return;

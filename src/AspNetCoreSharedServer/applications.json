@@ -1,13 +1,27 @@
 {
-    "Applications": [
-        {
-            "Name": "Test",
-            "ListenUrls": "http://127.0.0.1:10000",
-            "Urls": null,
-            "Assembly": "C:\\GitHub\\WebHostingCP\\HostPanelPro\\Sources\\HostPanelPro.Server\\bin_dotnet\\HostPanelPro.Server.dll",
-            "Arguments": null,
-            "IdleTimeout": "00:00:10",
-            "Recycle": "00:20:00"
-        }
-    ]
+  "Applications": [
+    {
+      "Name": "Test",
+      "ListenUrls": "http://127.0.0.1:59005",
+      "Urls": "",
+      "Environment": {},
+      "Assembly": "C:\\GitHub\\WebHostingCP\\HostPanelPro\\Sources\\HostPanelPro.Server\\bin_dotnet\\HostPanelPro.Server.dll",
+      "Arguments": "",
+      "IdleTimeout": "00:05:00",
+      "Recycle": "00:20:00"
+    },
+    {
+      "Name": "TestApp",
+      "ListenUrls": "http://127.0.0.1:59006",
+      "Urls": "",
+      "Environment": {},
+      "Assembly": "C:\\GitHub\\AspNetCoreSharedServer\\src\\AspNetCoreTestApp\\bin\\Debug\\net8.0\\AspNetCoreTestApp.dll",
+      "Arguments": "",
+      "IdleTimeout": "00:05:00",
+      "Recycle": "00:20:00"
+    }
+  ],
+  "IdleTimeout": "00:05:00",
+  "Recycle": "00:20:00",
+  "EnableHttp3": true
 }

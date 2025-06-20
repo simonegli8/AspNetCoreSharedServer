@@ -1,44 +1,49 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using System.IO;
-using Newtonsoft.Json;
+﻿using Newtonsoft.Json;
+using Newtonsoft.Json.Converters;
+using System.ComponentModel;
 
 namespace AspNetCoreSharedServer;
 
+[JsonConverter(typeof(StringEnumConverter))]
+public enum Command
+{
+	None = 0,
+	Shutdown = 1,
+}
 public class Configuration
 {
 	public class NamedMutex: IDisposable
 	{
-		public const string MutexPath = "Global\\aspnetcore.mutex.lock";
-	
-		private readonly Mutex mutex;
+		public const string MutexPath = "Global\\aspnetcore.lock";
+
+		private static Mutex mutex = new Mutex(false, MutexPath);
 		public NamedMutex()
 		{
-			mutex = new Mutex(true, MutexPath);
+			mutex.WaitOne();
 		}
 		public void Dispose()
 		{
 			mutex.ReleaseMutex();
-			mutex.Dispose();
 		}
 	}
 	[JsonIgnore]
 	public string ConfigPath => Environment.OSVersion.Platform == PlatformID.Win32NT ?
 		Path.Combine(Environment.CurrentDirectory, "applications.json") :
 		"/etc/aspnetcore/applications.json";
+
+#if Server
 	[JsonIgnore]
 	public ILogger<Worker> Logger = null;
+#endif
 	public List<Application> Applications { get; set; } = new List<Application>();
+	public TimeSpan? IdleTimeout { get; set; } = TimeSpan.FromMinutes(5);
+	public TimeSpan? Recycle { get; set; } = TimeSpan.FromMinutes(20);
+	public bool EnableHttp3 { get; set; } = true;
+	[DefaultValue(Command.None)]
+	public Command Command { get; set; } = Command.None;
 
-	bool recursive = false;
 	public void Load()
 	{
-		if (recursive) return;
-		recursive = true;
-
 		using (var mutex = new NamedMutex())
 		{
 			try
@@ -47,12 +52,43 @@ public class Configuration
 				if (File.Exists(ConfigPath))
 				{
 					// Read the configuration file if it exists.
-					var txt = File.ReadAllText(ConfigPath);
-					config = JsonConvert.DeserializeObject<Configuration>(txt);
-				} else
+					try
+					{
+						var txt = File.ReadAllText(ConfigPath);
+						config = JsonConvert.DeserializeObject<Configuration>(txt);
+#if Server
+						Logger.LogInformation("Loaded configuration file {ConfigPath}", ConfigPath);
+#endif
+					}
+					catch (Exception ex)
+					{
+#if Server
+						Logger.LogError(ex, "Failed to read configuration file {ConfigPath}", ConfigPath);
+#endif
+					}
+				}
+				else
 				{
 					config = new Configuration();
 				}
+
+#if Server
+				if (config.Command == Command.Shutdown)
+				{
+					// If the command is Shutdown, we should shutdown the server.
+					Logger.LogInformation("Received shutdown command, shutting down server.");
+					Shutdown();
+
+					// remove Shutdown command from config
+					config.Command = Command.None;
+					config.Save(true);
+					
+					return;
+				}
+
+				IdleTimeout = config.IdleTimeout;
+				Recycle = config.Recycle;
+				EnableHttp3 = config.EnableHttp3;
 
 				var oldApps = Applications
 					.OrderBy(app => app.Name)
@@ -113,35 +149,40 @@ public class Configuration
 
 				Applications = newApps;
 
-				if (!File.Exists(ConfigPath)) Save();
-				else SaveIfDirty();
+				if (!File.Exists(ConfigPath)) Save(true);
+				else SaveIfDirty(true);
+#endif
 			}
 			finally
 			{
-				recursive = false;
 			}
 		}
 	}
 
 	public void Listen(Application app)
 	{
+#if Server
 		var server = new Server(app);
 		Task.Run(() => server.ListenAsync());
+#endif
 	}
-	public void Save() 
+	public void Save(bool disableWatcher = false)
 	{
 		using (var mutex = new NamedMutex())
 		{
-			var txt = JsonConvert.SerializeObject(this, Formatting.Indented);
+			var txt = JsonConvert.SerializeObject(this, Formatting.Indented, 
+				new JsonSerializerSettings { DefaultValueHandling = DefaultValueHandling.Ignore });
+			if (watcher != null && disableWatcher) watcher.EnableRaisingEvents = false;
 			File.WriteAllText(ConfigPath, txt);
+			if (watcher != null && disableWatcher) watcher.EnableRaisingEvents = true;
 			foreach (var app in Applications) app.Dirty = false;
 		}
 	}
-	public void SaveIfDirty() 
+	public void SaveIfDirty(bool disableWatcher = false) 
 	{
 		if (Applications.Any(app => app.Dirty))
 		{
-			Save();
+			Save(disableWatcher);
 		}
 	}
 
@@ -157,18 +198,22 @@ public class Configuration
 				!oapp.Environment.Keys.All(key => app.Environment.ContainsKey(key) && app.Environment[key] == oapp.Environment[key]) ||
 				oapp.IdleTimeout != app.IdleTimeout || oapp.Recycle != app.Recycle)
 				{
+#if Server
 					if (oapp.Server != null)
 					{
 						oapp.Server.Shutdown();
 						oapp.Server = null;
 					}
+#endif
 					Applications.Remove(oapp);
 					Applications.Add(app);
 					Listen(app);
 				}
 				else
 				{
+#if Server
 					app.Server = oapp.Server;
+#endif
 					Applications.Remove(oapp);
 					Applications.Add(app);
 					return; // No changes, nothing to do.
@@ -179,7 +224,7 @@ public class Configuration
 				Applications.Add(app);
 				Listen(app);
 			}
-			Save();
+			Save(true);
 		}
 	}
 
@@ -191,13 +236,15 @@ public class Configuration
 			var app = Applications.FirstOrDefault(a => a.Name == name);
 			if (app != null)
 			{
+#if Server
 				if (app.Server != null)
 				{
 					app.Server.Shutdown();
 					app.Server = null;
 				}
+#endif
 				Applications.Remove(app);
-				Save();
+				Save(true);
 			}
 		}
 	}
@@ -209,14 +256,19 @@ public class Configuration
 	FileSystemWatcher? watcher = null;
 	public void Watch()
 	{
-		watcher = new FileSystemWatcher(Path.GetDirectoryName(ConfigPath) ?? string.Empty, Path.GetFileName(ConfigPath));
-		watcher.Changed += (s, e) => Load();
+		var dir = Path.GetDirectoryName(ConfigPath);
+		if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
+
+		watcher = new FileSystemWatcher(dir, Path.GetFileName(ConfigPath));
+		watcher.Changed += (s, e) => 
+			Load();
 		watcher.EnableRaisingEvents = true;
 		Load();
 	}
 
 	public void Shutdown()
-	{ 
+	{
+#if Server
 		if (watcher != null)
 		{
 			watcher.EnableRaisingEvents = false;
@@ -232,6 +284,10 @@ public class Configuration
 				app.Server = null;
 			}
 		}
+#else
+		Command = Command.Shutdown;
+		Save(true);
+#endif
 	}
 }
 
@@ -251,12 +307,19 @@ public class Application
 			listenUrls = value;
 		}
 	}
-	public string Urls { get; set; }
+	public string Urls { get; set; } = string.Empty;
 	public Dictionary<string, string> Environment { get; set; } = new Dictionary<string, string>();
-	public string Assembly { get; set; }
-	public string Arguments { get; set; }
-	public TimeSpan IdleTimeout { get; set; } = Server.GlobalIdleTimeout;
-	public TimeSpan Recycle { get; set; } = Server.GlobalRecycle;
+	public string Assembly { get; set; } = string.Empty;
+	public string Arguments { get; set; } = string.Empty;
+	[DefaultValue(null)]
+	public bool? EnableHttp3 { get; set; } = null;
+	[DefaultValue(null)]
+	public TimeSpan? IdleTimeout { get; set; } = null;
+	[DefaultValue(null)]
+	public TimeSpan? Recycle { get; set; } = null;
+
+#if Server
 	[JsonIgnore]
-	public Server Server { get; set; } = null;
+	public Server? Server { get; set; } = null;
+#endif
 }

@@ -9,7 +9,7 @@ namespace AspNetCoreSharedServer;
 
 public class Server
 {
-	public const bool SupportQuic = true;
+	public bool EnableHttp3 = true;
 	public const int RequestQueueSize = 64;
 
 	public CancellationTokenSource Cancel = new CancellationTokenSource();
@@ -23,12 +23,15 @@ public class Server
 	public Dictionary<string, string> Environment = new Dictionary<string, string>();
 	public static TimeSpan GlobalIdleTimeout = TimeSpan.FromMinutes(5);
 	public static TimeSpan GlobalRecycle = TimeSpan.FromMinutes(20);
-	public TimeSpan IdleTimeout = GlobalIdleTimeout;
-	public TimeSpan Recycle =GlobalRecycle;
+	public TimeSpan? IdleTimeout = GlobalIdleTimeout;
+	public TimeSpan? Recycle =GlobalRecycle;
 	public Receiver? Receiver = null;
+	public ILogger Logger => Configuration.Current.Logger;
 
 	public TcpListener Http, Https;
 	public UdpClient? QuicHttp, QuicHttps;
+	Uri? httpUri = null, httpsUri = null;
+	int httpPort = -1, httpsPort = -1;
 	public Server(Application app)
 	{
 		app.Server = this;
@@ -38,12 +41,10 @@ public class Server
 		Environment = app.Environment ?? new Dictionary<string, string>();
 		ListenUrls = app.ListenUrls;
 		OriginalUrls = app.Urls;
-		IdleTimeout = app.IdleTimeout != TimeSpan.Zero ? app.IdleTimeout : GlobalIdleTimeout;
-		Recycle = app.Recycle != TimeSpan.Zero ? app.Recycle : GlobalRecycle;
-	}
-	public async Task ListenAsync()
-	{
-		Uri? httpUri = null, httpsUri = null;
+		IdleTimeout = app.IdleTimeout ?? IdleTimeout;
+		Recycle = app.Recycle ?? Recycle;
+		EnableHttp3 = app.EnableHttp3 ?? EnableHttp3;
+
 		List<string> actualurls = new List<string>();
 
 		foreach (var url in ListenUrls.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
@@ -61,7 +62,6 @@ public class Server
 			}
 			else throw new ArgumentException("Invalid URL scheme. Only 'http' and 'https' are supported.", nameof(url));
 		}
-		int httpPort = -1, httpsPort = -1;
 		if (HasHttp)
 		{
 			if (httpUri.Port == 80) httpPort = Receiver.FindFreePort();
@@ -76,12 +76,17 @@ public class Server
 			actualurls.Add($"http://{IPAddress.Loopback}:{httpsPort}");
 		}
 
-		if (SupportQuic)
+		Application.ListenUrls = ListenUrls = string.Join(";", actualurls);
+
+		Configuration.Current.SaveIfDirty(true);
+	}
+	public async Task ListenAsync()
+	{
+		if (EnableHttp3)
 		{
 			if (httpPort > -1) QuicHttp = new UdpClient(httpPort);
 			if (httpsPort > -1) QuicHttps = new UdpClient(httpsPort);
 		}
-		Application.ListenUrls = ListenUrls = string.Join(";", actualurls);
 
 		Task? t1 = null, t2 = null, t3 = null, t4 = null;
 		if (HasHttp)
@@ -109,6 +114,7 @@ public class Server
 		{
 			if (Receiver != null)
 			{
+				Logger.LogInformation($"Shutting down {Application.Name}.");			
 				Receiver.Shutdown();
 			}
 		}
@@ -118,7 +124,7 @@ public class Server
 	{
 		source.Start(RequestQueueSize);
 
-		Configuration.Current.Logger.LogInformation($"Listening on {source.LocalEndpoint}");
+		Logger.LogInformation($"{Application.Name} listening on {source.LocalEndpoint}");
 
 		while (!Cancel.IsCancellationRequested)
 		{

@@ -1,0 +1,29 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net8.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <IsPackable>true</IsPackable>
+        <PackageId>AspNetCoreSharedServer.Api</PackageId>
+        <PackageReadmeFile>README.md</PackageReadmeFile>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <None Remove="README.md" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <Compile Include="..\AspNetCoreSharedServer\Configuration.cs">
+            <Link>Configuration.cs</Link>
+        </Compile>
+    </ItemGroup>
+
+    <ItemGroup>
+      <Content Include="README.md" Pack="true" PackagePath="\" />
+    </ItemGroup>
+</Project>

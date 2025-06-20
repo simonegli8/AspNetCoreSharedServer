@@ -6,10 +6,23 @@
         <ImplicitUsings>enable</ImplicitUsings>
         <RootNamespace>AspNetCoreSharedServer</RootNamespace>
         <AssemblyName>AspNetCoreSharedServer</AssemblyName>
+        <IsPackable>true</IsPackable>
+        <PackAsTool>true</PackAsTool>
+        <PackageId>AspNetCoreSharedServer</PackageId>
+        <PackageReadmeFile>README.md</PackageReadmeFile>
+        <DefineConstants>$(DefineConstants);Server</DefineConstants>
     </PropertyGroup>
 
     <ItemGroup>
       <Compile Remove="AppAssemblyLoadContext.cs" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <None Remove="README.md" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <Content Include="README.md" Pack="true" PackagePath="\" />
     </ItemGroup>
 
     <ItemGroup>
