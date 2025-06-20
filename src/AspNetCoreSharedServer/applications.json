@@ -2,7 +2,7 @@
   "Applications": [
     {
       "Name": "Test",
-      "ListenUrls": "http://127.0.0.1:59005",
+      "ListenUrls": "http://127.0.0.1:10000",
       "Urls": "",
       "Environment": {},
       "Assembly": "C:\\GitHub\\WebHostingCP\\HostPanelPro\\Sources\\HostPanelPro.Server\\bin_dotnet\\HostPanelPro.Server.dll",
@@ -12,7 +12,7 @@
     },
     {
       "Name": "TestApp",
-      "ListenUrls": "http://127.0.0.1:59005",
+      "ListenUrls": "http://127.0.0.1:10001",
       "Urls": "",
       "Environment": {},
       "Assembly": "C:\\GitHub\\AspNetCoreSharedServer\\src\\AspNetCoreTestApp\\bin\\Debug\\net8.0\\AspNetCoreTestApp.dll",
