@@ -1,4 +1,4 @@
-SET PackageVersion=1.0.10
+SET PackageVersion=1.0.11
 SET Configuration=Release
 
 dotnet pack src\AspNetCoreSharedServer.sln -c %Configuration%

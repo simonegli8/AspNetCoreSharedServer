@@ -1,6 +1,9 @@
-﻿using Newtonsoft.Json;
+﻿using Mono.Unix.Native;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Converters;
 using System.ComponentModel;
+using System.Net;
+using System.Net.Sockets;
 
 namespace AspNetCoreSharedServer;
 
@@ -26,11 +29,50 @@ public class Configuration
 			mutex.ReleaseMutex();
 		}
 	}
+	static int StartPort = 10000; 
+	public static int FindFreePort(bool temporary = false)
+	{
+		const int EndPort = 49000;
+		int port = 0;
+		Socket socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+		try
+		{
+			IPEndPoint localEP;
+			if (temporary) {
+				localEP = new IPEndPoint(IPAddress.Any, 0);
+				socket.Bind(localEP);
+			} else
+			{
+				port = StartPort;
+				do
+				{
+					try
+					{
+						localEP = new IPEndPoint(IPAddress.Any, port++);
+						socket.Bind(localEP);
+						StartPort++; // Increment the start port for the next call
+						break;
+					}
+					catch (SocketException)
+					{
+						if (port > EndPort) throw new InvalidOperationException("No free ports available in the range.");
+					}
+				} while (true);
+			}
+			localEP = (IPEndPoint)socket.LocalEndPoint;
+			port = localEP.Port;
+		}
+		finally
+		{
+			socket.Close();
+		}
+		return port;
+	}
+
 	[JsonIgnore]
 	public string ConfigPath => Environment.OSVersion.Platform == PlatformID.Win32NT ?
 		Path.Combine(Environment.CurrentDirectory, "applications.json") :
 		"/etc/aspnetcore/applications.json";
-
 #if Server
 	[JsonIgnore]
 	public ILogger<Worker> Logger = null;
@@ -41,9 +83,14 @@ public class Configuration
 	public bool EnableHttp3 { get; set; } = true;
 	[DefaultValue(Command.None)]
 	public Command Command { get; set; } = Command.None;
+	public bool IsShuttingDown = false;
 
+	bool loadEntered = false;
 	public void Load()
 	{
+		if (loadEntered || IsShuttingDown) return; // Prevent re-entrancy
+		loadEntered = true;
+
 		using (var mutex = new NamedMutex())
 		{
 			try
@@ -96,6 +143,24 @@ public class Configuration
 				var newApps = (config?.Applications ?? new List<Application>())
 					.OrderBy(app => app.Name)
 					.ToList();
+
+				// If not runnig as root, forbid User & Group settings
+				if (Environment.OSVersion.Platform != PlatformID.Win32NT && Syscall.getuid() != 0)
+				{
+					if (newApps.Any(app => !string.IsNullOrEmpty(app.User) || !string.IsNullOrEmpty(app.Group)))
+					{
+						Logger.LogError("Cannot set User or Group of Application when not running AspNetCoreSharedServer as root.");
+						return;
+					}
+				} else if (Environment.OSVersion.Platform != PlatformID.Win32NT && Syscall.getuid() == 0)
+				{
+					if (watcher != null) watcher.EnableRaisingEvents = false;
+					// If running as root, set permissions to read/write for root only
+					Syscall.chmod(Path.GetDirectoryName(ConfigPath), FilePermissions.S_IRUSR | FilePermissions.S_IWUSR);
+					Syscall.chmod(ConfigPath, FilePermissions.S_IRUSR | FilePermissions.S_IWUSR);
+					if (watcher != null) watcher.EnableRaisingEvents = true;
+				}
+
 				int i = 0, oi = 0;
 				for (i = 0; i < newApps.Count; i++)
 				{
@@ -114,6 +179,7 @@ public class Configuration
 					{
 						var oapp = oldApps[oi];
 						if (oapp.Assembly != app.Assembly || oapp.Urls != app.Urls || oapp.Arguments != app.Arguments ||
+							oapp.ListenUrls != app.ListenUrls || oapp.User != app.User || oapp.Group != app.Group ||
 							!oapp.Environment.Keys.All(key => app.Environment.ContainsKey(key) && app.Environment[key] == oapp.Environment[key]) ||
 							oapp.IdleTimeout != app.IdleTimeout || oapp.Recycle != app.Recycle)
 						{
@@ -155,6 +221,7 @@ public class Configuration
 			}
 			finally
 			{
+				loadEntered = false; // Reset the flag to allow future loads
 			}
 		}
 	}
@@ -162,8 +229,11 @@ public class Configuration
 	public void Listen(Application app)
 	{
 #if Server
-		var server = new Server(app);
-		Task.Run(() => server.ListenAsync());
+		if (!IsShuttingDown)
+		{
+			var server = new Server(app);
+			Task.Run(() => server.ListenAsync());
+		}
 #endif
 	}
 	public void Save(bool disableWatcher = false)
@@ -174,6 +244,12 @@ public class Configuration
 				new JsonSerializerSettings { DefaultValueHandling = DefaultValueHandling.Ignore });
 			if (watcher != null && disableWatcher) watcher.EnableRaisingEvents = false;
 			File.WriteAllText(ConfigPath, txt);
+			// If runnig as root, set permissions to read/write for root only
+			if (Environment.OSVersion.Platform != PlatformID.Win32NT && Syscall.getuid() == 0)
+			{
+				Syscall.chmod(Path.GetDirectoryName(ConfigPath), FilePermissions.S_IRUSR | FilePermissions.S_IWUSR);
+				Syscall.chmod(ConfigPath, FilePermissions.S_IRUSR | FilePermissions.S_IWUSR);
+			}
 			if (watcher != null && disableWatcher) watcher.EnableRaisingEvents = true;
 			foreach (var app in Applications) app.Dirty = false;
 		}
@@ -195,8 +271,9 @@ public class Configuration
 			if (oapp != null)
 			{
 				if (oapp.Assembly != app.Assembly || oapp.Urls != app.Urls || oapp.Arguments != app.Arguments ||
-				!oapp.Environment.Keys.All(key => app.Environment.ContainsKey(key) && app.Environment[key] == oapp.Environment[key]) ||
-				oapp.IdleTimeout != app.IdleTimeout || oapp.Recycle != app.Recycle)
+					oapp.ListenUrls != app.ListenUrls || oapp.User != app.User || oapp.Group != app.Group ||
+					!oapp.Environment.Keys.All(key => app.Environment.ContainsKey(key) && app.Environment[key] == oapp.Environment[key]) ||
+					oapp.IdleTimeout != app.IdleTimeout || oapp.Recycle != app.Recycle)
 				{
 #if Server
 					if (oapp.Server != null)
@@ -307,9 +384,13 @@ public class Application
 			listenUrls = value;
 		}
 	}
+	[DefaultValue("")]
 	public string Urls { get; set; } = string.Empty;
 	public Dictionary<string, string> Environment { get; set; } = new Dictionary<string, string>();
 	public string Assembly { get; set; } = string.Empty;
+	[DefaultValue(null)]
+	public string? Path { get; set; } = null;
+	[DefaultValue("")]
 	public string Arguments { get; set; } = string.Empty;
 	[DefaultValue(null)]
 	public bool? EnableHttp3 { get; set; } = null;
@@ -317,6 +398,10 @@ public class Application
 	public TimeSpan? IdleTimeout { get; set; } = null;
 	[DefaultValue(null)]
 	public TimeSpan? Recycle { get; set; } = null;
+	[DefaultValue(null)]
+	public string? User { get; set; } = null;
+	[DefaultValue(null)]
+	public string? Group { get; set; } = null;
 
 #if Server
 	[JsonIgnore]

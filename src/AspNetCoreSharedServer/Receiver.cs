@@ -15,7 +15,6 @@ public class Receiver
 {
 	public const int BufferSize = 4 * 1024;
 	public ILogger Logger => Configuration.Current.Logger;
-
 	public async Task<TcpClient> Connect(int port)
 	{
 		if (port > -1)
@@ -57,8 +56,11 @@ public class Receiver
 	public UdpClient QuicHttpDest, QuicHttpsDest;
 	public long Ticks = 0;
 	public DateTime Started = DateTime.Now;
+	int KestrelRestarts = 0;
+	const int MaxKestrelRestarts = 9; // Maximum number of times to restart Kestrel before giving up
 	public DateTime LastWork => DateTime.FromBinary(Interlocked.Read(ref Ticks));
 	Server Server;
+	public Application Application => Server.Application;
 	Process? Kestrel;
 	public CancellationTokenSource Cancel = new CancellationTokenSource();
 
@@ -67,10 +69,8 @@ public class Receiver
 		Server = server;
 		//if (!Directory.Exists("/run/aspnet")) Directory.CreateDirectory("/run/aspnet");
 
-		var ticks = DateTime.Now.ToBinary();
-
-		if (Server.HasHttp) HttpPort = FindFreePort();
-		if (Server.HasHttps) HttpsPort = FindFreePort();
+		if (Server.HasHttp) HttpPort = Configuration.FindFreePort(true);
+		if (Server.HasHttps) HttpsPort = Configuration.FindFreePort(true);
 
 		if (Server.EnableHttp3)
 		{
@@ -78,9 +78,20 @@ public class Receiver
 			if (HttpsPort > -1) QuicHttpsDest = new UdpClient(new IPEndPoint(IPAddress.IPv6Loopback, HttpsPort));
 		}
 
-		var info = new ProcessStartInfo("dotnet");
-		info.WorkingDirectory = Path.GetDirectoryName(Server.Assembly);
-		info.Arguments = $"\"{Server.Assembly}\"{(!string.IsNullOrEmpty(Server.Arguments) ? "" : " " + Server.Arguments)}";
+		var info = new ProcessStartInfo();
+		info.WorkingDirectory = Path.GetDirectoryName(Application.Assembly);
+		if (Environment.OSVersion.Platform != PlatformID.Win32NT && Mono.Unix.Native.Syscall.getuid() == 0)
+		{
+			// If running as root, use sudo to drop privileges
+			info.FileName = "sudo";
+			info.Arguments = $"-E -u {Application.User ?? "www-data"} -g {Application.Group ?? "www-data"} -- dotnet \"{Server.Assembly}\"{(!string.IsNullOrEmpty(Server.Arguments) ? "" : " " + Server.Arguments)}";
+		}
+		else
+		{
+			// Otherwise, run dotnet directly
+			info.FileName = "dotnet";
+			info.Arguments = $"\"{Application.Assembly}\"{(!string.IsNullOrEmpty(Application.Arguments) ? "" : " " + Server.Arguments)}";
+		}
 		info.CreateNoWindow = false;
 		var urls = new StringBuilder();
 		if (Server.HasHttp) urls.Append($"http://[::1]:{HttpPort}");
@@ -89,60 +100,47 @@ public class Receiver
 			if (urls.Length > 0) urls.Append(';');
 			urls.Append($"https://[::1]:{HttpsPort}");
 		}
-		foreach (var key in Server.Environment.Keys)
+		foreach (var key in Application.Environment.Keys)
 		{
-			info.Environment[key] = Server.Environment[key];
+			info.Environment[key] = Application.Environment[key];
 		}
-		info.Environment["ORIGINAL_URLS"] = Server.OriginalUrls ?? "";
+		info.Environment["ORIGINAL_URLS"] = Application.Urls ?? "";
 		info.Environment["ASPNETCORE_URLS"] = urls.ToString();
 		Logger.LogInformation($"Starting Kestrel on {urls}");
 		info.RedirectStandardError = info.RedirectStandardOutput = false;
-		info.RedirectStandardInput = false;
+		info.RedirectStandardInput = true;
 		info.UseShellExecute = false;
 		info.WindowStyle = ProcessWindowStyle.Normal;
 		Kestrel = Process.Start(info);
 
 		Ticks = DateTime.Now.ToBinary();
+		
+		if (Kestrel.HasExited) Logger.LogError($"{Application.Name}: Failed to start Kestrel.");
 
-		if (Kestrel.HasExited) Logger.LogError($"{Server.Application.Name}: Failed to start Kestrel.");
-
-		if (Server.Recycle != TimeSpan.Zero && Server.IdleTimeout != TimeSpan.Zero)
+		if (Server.Recycle != null || Server.IdleTimeout != null ||
+			Server.Recycle != TimeSpan.Zero || Server.IdleTimeout != TimeSpan.Zero)
 			Task.Run(async () => await CheckTimeout());
 	}
+	bool shuttingDown = false;
 	public void Shutdown()
 	{
+		Logger.LogInformation($"Shutting down {Application.Name}.");
+
 		if (Kestrel != null)
 		{
-			if (!Kestrel.HasExited)
-			{
-				SignalSender.SendSigint(Kestrel); // Send SIGINT to gracefully stop Kestrel
-				lock (Server) Server.Receiver = null; // Clear the receiver reference to prevent further processing
-				Task.Run(async () =>
-				{
-					await Task.Delay(6000);
-					Cancel.Cancel();
-				});
-			}
-			Kestrel = null;
-		}
-	}
+			shuttingDown = true;
 
-	public static int FindFreePort()
-	{
-		int port = 0;
-		Socket socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-		try
-		{
-			IPEndPoint localEP = new IPEndPoint(IPAddress.Any, 0);
-			socket.Bind(localEP);
-			localEP = (IPEndPoint)socket.LocalEndPoint;
-			port = localEP.Port;
+			if (!Kestrel.HasExited) SignalSender.SendSigint(Kestrel); // Send SIGINT to gracefully stop Kestrel
+			Kestrel = null;
+
+			lock (Server) Server.Receiver = null; // Clear the receiver reference to prevent further processing
+			Task.Run(async () =>
+			{
+				await Task.Delay(6000);
+				Cancel.Cancel();
+			});
+			
 		}
-		finally
-		{
-			socket.Close();
-		}
-		return port;
 	}
 
 	public async Task CheckTimeout()
@@ -150,12 +148,33 @@ public class Receiver
 		do
 		{
 			var now = DateTime.Now;
-			if (Server.IdleTimeout != null && now - LastWork > Server.IdleTimeout ||
-				Server.Recycle != null && now - Started > Server.Recycle)
+			if (Server.IdleTimeout != null && Server.IdleTimeout != TimeSpan.Zero &&
+				now - LastWork > Server.IdleTimeout ||
+				Server.Recycle != null && Server.Recycle != TimeSpan.Zero &&
+				now - Started > Server.Recycle)
 			{
-				Logger.LogInformation($"Shutdown {Server.Application.Name}.");
+				Logger.LogInformation($"Shutdown {Application.Name}.");
 				Shutdown();
+				if (Server.IdleTimeout == TimeSpan.Zero)
+				{
+					// Immediately restart when IdleTimeout is set to zero
+					Server.StartReceiver();
+				}
 				return;
+			} else if (Kestrel != null && Kestrel.HasExited && !shuttingDown) // If Kestrel has stopped, restart it
+			{
+				KestrelRestarts++;
+				if (KestrelRestarts > MaxKestrelRestarts)
+				{
+					Logger.LogError($"Kestrel has exited too many times ({KestrelRestarts}), giving up on restarting.");
+					Shutdown();
+					return;
+				}
+				else
+				{
+					Server.Receiver = null;
+					Server.StartReceiver();
+				}
 			}
 			await Task.Delay(5000);
 		} while (Server.Cancel.IsCancellationRequested == false);

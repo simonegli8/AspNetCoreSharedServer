@@ -4,10 +4,10 @@ ASP.NET Core in a shared hosting environment behind a proxy like Apache or Nginx
 run as a permanent Systemd service using resources, but should be started on demand and shutdown when idle. 
 
 # Usage
-First install AspNetCoreSharedServer using the comman `dotnet tool install AspNetCoreSharedServer --global`.
+First install AspNetCoreSharedServer using the comman `sudo dotnet tool install AspNetCoreSharedServer --global`.
 
 ## Run AspNetCoreSharedServer as a Systemd service.
-Use a .service file like the following to run AspNetCoreSharedServer as a Systemd service:
+Next, use a aspnetcore-shared-server.service file like the following to run AspNetCoreSharedServer as a Systemd service:
 ```ini
 [Unit]
 Description=AspNetCoreSharedServer service, a shared server for serving ASP.NET Core applications over a proxy.
@@ -18,16 +18,15 @@ StartLimitBurst=5
 
 [Service]
 Type=simple
-ExecStart=AspNetCoreSharedServer
+ExecStart=/root/.dotnet/tools/AspNetCoreSharedServer
 Environment="ASPNETCORE_ENVIRONMENT=Production"
-Environment="PATH=$PATH:/usr/share/dotnet:~/.dotnet/tools"
 Environment="DOTNET_ROOT=/usr/share/dotnet"
 Restart=on-failure
 RestartSec=1s
 StandardOutput=journal+console
 StandardError=journal+console
-SyslogIdentifier=AspNetCoreSharedServer
-User=www-data
+SyslogIdentifier=aspnetcore-shared-server
+User=root
 Group=www-data
 
 [Install]
@@ -45,6 +44,8 @@ All the configuration is stored in /etc/aspnetcore/applications.json.
 When the configuration is changed, changes are applied on the fly. The applications.json file is defined as follows:
 ```json
 {
+  "IdleTimeout": 300,
+  "Recycle": 1200,
   "Applications": [
     {
       "Name": "MyApp",
@@ -52,8 +53,6 @@ When the configuration is changed, changes are applied on the fly. The applicati
       "Arguments": "",
       "Urls": "http://original-domain.org",
       "ListenUrls": "http://localhost",
-      "IdleTimeout": 300,
-      "Recycle": 1200,
       "Environment": {
         "ASPNETCORE_ENVIRONMENT": "Production"
       }

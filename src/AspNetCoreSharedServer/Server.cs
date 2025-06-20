@@ -23,8 +23,8 @@ public class Server
 	public Dictionary<string, string> Environment = new Dictionary<string, string>();
 	public static TimeSpan GlobalIdleTimeout = TimeSpan.FromMinutes(5);
 	public static TimeSpan GlobalRecycle = TimeSpan.FromMinutes(20);
-	public TimeSpan? IdleTimeout = GlobalIdleTimeout;
-	public TimeSpan? Recycle =GlobalRecycle;
+	public TimeSpan? IdleTimeout = null;
+	public TimeSpan? Recycle = null;
 	public Receiver? Receiver = null;
 	public ILogger Logger => Configuration.Current.Logger;
 
@@ -41,8 +41,8 @@ public class Server
 		Environment = app.Environment ?? new Dictionary<string, string>();
 		ListenUrls = app.ListenUrls;
 		OriginalUrls = app.Urls;
-		IdleTimeout = app.IdleTimeout ?? IdleTimeout;
-		Recycle = app.Recycle ?? Recycle;
+		IdleTimeout = app.IdleTimeout ?? Configuration.Current.IdleTimeout ?? GlobalIdleTimeout;
+		Recycle = app.Recycle ?? Configuration.Current.Recycle ?? GlobalRecycle;
 		EnableHttp3 = app.EnableHttp3 ?? EnableHttp3;
 
 		List<string> actualurls = new List<string>();
@@ -64,14 +64,14 @@ public class Server
 		}
 		if (HasHttp)
 		{
-			if (httpUri.Port == 80) httpPort = Receiver.FindFreePort();
+			if (httpUri.Port == 80) httpPort = Configuration.FindFreePort();
 			else httpPort = httpUri.Port;
 			actualurls.Add($"http://{IPAddress.Loopback}:{httpPort}");
 		}
 
 		if (HasHttps)
 		{
-			if (httpsUri.Port == 443) httpsPort = Receiver.FindFreePort();
+			if (httpsUri.Port == 443) httpsPort = Configuration.FindFreePort();
 			else httpsPort = httpsUri.Port;
 			actualurls.Add($"http://{IPAddress.Loopback}:{httpsPort}");
 		}
@@ -114,12 +114,24 @@ public class Server
 		{
 			if (Receiver != null)
 			{
-				Logger.LogInformation($"Shutting down {Application.Name}.");			
 				Receiver.Shutdown();
 			}
+			Task.Run(async () =>
+			{
+				await Task.Delay(6000);
+				Cancel.Cancel(); // Cancel the main listening loop
+			});
 		}
 	}
 
+	public Receiver StartReceiver()
+	{
+		lock (this)
+		{
+			if (Receiver == null) Receiver = new Receiver(this);
+			return Receiver;
+		}
+	}
 	public async Task ListenAsync(TcpListener source, Func<Receiver, Task<TcpClient>> destination)
 	{
 		source.Start(RequestQueueSize);
@@ -131,13 +143,7 @@ public class Server
 			try
 			{
 				var client = await source.AcceptTcpClientAsync(Cancel.Token);
-				Receiver receiver;
-				lock (this)
-				{
-					if (Receiver == null) Receiver = new Receiver(this);
-					receiver = Receiver;
-				}
-
+				var receiver = StartReceiver();
 				var task = receiver.CopyAsync(client, await destination(receiver));
 			}
 			catch (SocketException ex)
