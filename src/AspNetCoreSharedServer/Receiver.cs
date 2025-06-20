@@ -153,6 +153,7 @@ public class Receiver
 			if (Server.IdleTimeout != null && now - LastWork > Server.IdleTimeout ||
 				Server.Recycle != null && now - Started > Server.Recycle)
 			{
+				Logger.LogInformation($"Shutdown {Server.Application.Name}.");
 				Shutdown();
 				return;
 			}
