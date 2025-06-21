@@ -16,7 +16,7 @@ namespace AspNetCoreSharedServer
 				var apps = Configuration.Current.Applications.ToList();
                 foreach (var app in apps)
                 {
-                    if (app.Server != null) app.Server.Shutdown();
+                    if (app.Proxy != null) app.Proxy.Shutdown();
 				}
 			});
 		}

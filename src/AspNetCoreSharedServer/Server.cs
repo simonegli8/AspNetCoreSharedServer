@@ -1,4 +1,8 @@
-﻿using System.Net;
+﻿
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Threading.Tasks;
@@ -9,214 +13,216 @@ namespace AspNetCoreSharedServer;
 
 public class Server
 {
-	public bool EnableHttp3 = true;
-	public const int RequestQueueSize = 64;
+	public const int BufferSize = 4 * 1024;
+	public ILogger Logger => Configuration.Current.Logger;
+	public async Task<TcpClient> Connect(int port)
+	{
+		if (port > -1)
+		{
+			var client = new TcpClient();
+			var cancel = new CancellationTokenSource();
+			cancel.CancelAfter(30000);
 
+			try
+			{
+				await client.ConnectAsync(new IPEndPoint(IPAddress.IPv6Loopback, port), cancel.Token);
+			}
+			catch (Exception ex)
+			{
+			}
+			while (!client.Connected)
+			{
+				await Task.Delay(10, cancel.Token);
+				try
+				{
+					await client.ConnectAsync(new IPEndPoint(IPAddress.Loopback, port), cancel.Token);
+				}
+				catch (Exception ex)
+				{
+				}
+			}
+			return client;
+		}
+		return null;
+	}
+	public async Task<TcpClient> HttpDest() {
+		return await Connect(HttpPort);
+	}
+	public async Task<TcpClient> HttpsDest()
+	{
+		return await Connect(HttpsPort);
+	}
+	public int HttpPort = -1, HttpsPort = -1;
+	public UdpClient QuicHttpDest, QuicHttpsDest;
+	public DateTime Started = DateTime.Now;
+	public long Ticks = DateTime.Now.ToBinary();
+	int KestrelRestarts = 0;
+	const int MaxKestrelRestarts = 9; // Maximum number of times to restart Kestrel before giving up
+	public DateTime LastWork => DateTime.FromBinary(Interlocked.Read(ref Ticks));
+	Proxy Proxy;
+	public Application Application => Proxy.Application;
+	Process? Kestrel;
 	public CancellationTokenSource Cancel = new CancellationTokenSource();
 
-	public string Assembly;
-	public string Arguments;
-	public Application Application = null;
-	public string ListenUrls = string.Empty;
-	public string OriginalUrls = string.Empty;
-	public bool HasHttp = false, HasHttps = false;
-	public Dictionary<string, string> Environment = new Dictionary<string, string>();
-	public static TimeSpan GlobalIdleTimeout = TimeSpan.FromMinutes(5);
-	public static TimeSpan GlobalRecycle = TimeSpan.FromMinutes(20);
-	public TimeSpan? IdleTimeout = null;
-	public TimeSpan? Recycle = null;
-	public Receiver? Receiver = null;
-	public ILogger Logger => Configuration.Current.Logger;
-
-	public TcpListener Http, Https;
-	public UdpClient? QuicHttp, QuicHttps;
-	Uri? httpUri = null, httpsUri = null;
-	int httpPort = -1, httpsPort = -1;
-	public Server(Application app)
+	public Server(Proxy server)
 	{
-		app.Server = this;
-		Application = app;
-		Assembly = app.Assembly;
-		Arguments = app.Arguments ?? string.Empty;
-		Environment = app.Environment ?? new Dictionary<string, string>();
-		ListenUrls = app.ListenUrls;
-		OriginalUrls = app.Urls;
-		IdleTimeout = app.IdleTimeout ?? Configuration.Current.IdleTimeout ?? GlobalIdleTimeout;
-		Recycle = app.Recycle ?? Configuration.Current.Recycle ?? GlobalRecycle;
-		EnableHttp3 = app.EnableHttp3 ?? EnableHttp3;
+		Proxy = server;
+		//if (!Directory.Exists("/run/aspnet")) Directory.CreateDirectory("/run/aspnet");
 
-		List<string> actualurls = new List<string>();
+		if (Proxy.HasHttp) HttpPort = Configuration.FindFreePort(true);
+		if (Proxy.HasHttps) HttpsPort = Configuration.FindFreePort(true);
 
-		foreach (var url in ListenUrls.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+		if (Proxy.EnableHttp3)
 		{
-			var uri = new Uri(url);
-			if (uri.Scheme == "http")
-			{
-				HasHttp = true;
-				httpUri = uri;
-			}
-			else if (uri.Scheme == "https")
-			{
-				HasHttps = true;
-				httpsUri = uri;
-			}
-			else throw new ArgumentException("Invalid URL scheme. Only 'http' and 'https' are supported.", nameof(url));
-		}
-		if (HasHttp)
-		{
-			if (httpUri.Port == 80) httpPort = Configuration.FindFreePort();
-			else httpPort = httpUri.Port;
-			actualurls.Add($"http://{IPAddress.Loopback}:{httpPort}");
+			if (HttpPort > -1) QuicHttpDest = new UdpClient(new IPEndPoint(IPAddress.IPv6Loopback, HttpPort));
+			if (HttpsPort > -1) QuicHttpsDest = new UdpClient(new IPEndPoint(IPAddress.IPv6Loopback, HttpsPort));
 		}
 
-		if (HasHttps)
+		var info = new ProcessStartInfo();
+		info.WorkingDirectory = Path.GetDirectoryName(Application.Assembly);
+		var user = Application.User ?? Configuration.Current.User;
+		var group = Application.Group ?? Configuration.Current.Group;
+		if (Environment.OSVersion.Platform != PlatformID.Win32NT && Mono.Unix.Native.Syscall.getuid() == 0 &&
+			!string.IsNullOrEmpty(user))
 		{
-			if (httpsUri.Port == 443) httpsPort = Configuration.FindFreePort();
-			else httpsPort = httpsUri.Port;
-			actualurls.Add($"http://{IPAddress.Loopback}:{httpsPort}");
+			string groupArg = "";
+			if (!string.IsNullOrEmpty(group)) groupArg = $"-g  {group} ";
+			// If running as root, use sudo to drop privileges
+			info.FileName = "sudo";
+			info.Arguments = $"-E -u {user} {groupArg}-- dotnet \"{Proxy.Assembly}\"{(!string.IsNullOrEmpty(Proxy.Arguments) ? "" : " " + Proxy.Arguments)}";
 		}
+		else
+		{
+			// Otherwise, run dotnet directly
+			info.FileName = "dotnet";
+			info.Arguments = $"\"{Application.Assembly}\"{(!string.IsNullOrEmpty(Application.Arguments) ? "" : " " + Proxy.Arguments)}";
+		}
+		info.CreateNoWindow = false;
+		var urls = new StringBuilder();
+		if (Proxy.HasHttp) urls.Append($"http://[::1]:{HttpPort}");
+		if (Proxy.HasHttps)
+		{
+			if (urls.Length > 0) urls.Append(';');
+			urls.Append($"https://[::1]:{HttpsPort}");
+		}
+		foreach (var key in Application.Environment.Keys)
+		{
+			info.Environment[key] = Application.Environment[key];
+		}
+		info.Environment["ORIGINAL_URLS"] = Application.Urls ?? "";
+		info.Environment["ASPNETCORE_URLS"] = urls.ToString();
+		Logger.LogInformation($"Starting Kestrel on {urls}");
+		info.RedirectStandardError = info.RedirectStandardOutput = false;
+		info.RedirectStandardInput = true;
+		info.UseShellExecute = false;
+		info.WindowStyle = ProcessWindowStyle.Normal;
+		Kestrel = Process.Start(info);
 
-		Application.ListenUrls = ListenUrls = string.Join(";", actualurls);
+		Ticks = DateTime.Now.ToBinary();
+		
+		if (Kestrel.HasExited) Logger.LogError($"{Application.Name}: Failed to start Kestrel.");
 
-		Configuration.Current.SaveIfDirty(true);
+		if (Proxy.Recycle != null || Proxy.IdleTimeout != null ||
+			Proxy.Recycle != TimeSpan.Zero || Proxy.IdleTimeout != TimeSpan.Zero)
+			Task.Run(async () => await CheckTimeout());
 	}
-	public async Task ListenAsync()
-	{
-		bool exception = false;
-		try
-		{
-			if (EnableHttp3)
-			{
-				if (httpPort > -1) QuicHttp = new UdpClient(httpPort);
-				if (httpsPort > -1) QuicHttps = new UdpClient(httpsPort);
-			}
-
-			Task? t1 = null, t2 = null, t3 = null, t4 = null;
-			if (HasHttp)
-			{
-				Http = new TcpListener(IPAddress.Loopback, httpPort);
-				t1 = ListenAsync(Http, receiver => receiver.HttpDest());
-			}
-			if (HasHttps)
-			{
-				Http = new TcpListener(IPAddress.Loopback, httpsPort);
-				t2 = ListenAsync(Https, receiver => receiver.HttpsDest());
-			}
-			if (QuicHttp != null) t3 = ListenAsync(QuicHttp, receiver => receiver.QuicHttpDest);
-			if (QuicHttps != null) t4 = ListenAsync(QuicHttps, receiver => receiver.QuicHttpsDest);
-
-			var tasks = new Task?[] { t1, t2, t3, t4 }
-				.Where(t => t != null)
-				.Select(t => t!)
-				.ToArray();
-			await Task.WhenAll(tasks);
-		}
-		catch (OperationCanceledException ex)
-		{
-		}
-		catch (SocketException ex)
-		{
-			Logger.LogError(ex, $"{Application.Name}: Socket error while starting server");
-			Configuration.Current.ReportError($"{Application.Name}: Socket error while starting server", ex);
-			exception = true;
-			throw;
-		}
-		catch (Exception ex)
-		{
-			Logger.LogError(ex, $"{Application.Name}: Error while starting server");
-			Configuration.Current.ReportError($"{Application.Name}: Socket error while starting server", ex);
-			exception = true;
-			throw;
-		}
-		finally
-		{
-			if (!exception)
-			{
-				Receiver = StartReceiver();
-				Logger.LogInformation($"{Application.Name} started listening on {ListenUrls}");
-			}
-		}
-	}
+	bool shuttingDown = false;
 	public void Shutdown()
 	{
-		lock (this)
+		Logger.LogInformation($"Shutting down {Application.Name}.");
+
+		if (Kestrel != null)
 		{
-			if (Receiver != null)
-			{
-				Receiver.Shutdown();
-			}
+			shuttingDown = true;
+
+			if (!Kestrel.HasExited) SignalSender.SendSigint(Kestrel); // Send SIGINT to gracefully stop Kestrel
+			Kestrel = null;
+
+			lock (Proxy) Proxy.Server = null; // Clear the server reference to prevent further processing
 			Task.Run(async () =>
 			{
 				await Task.Delay(6000);
-				Cancel.Cancel(); // Cancel the main listening loop
+				Cancel.Cancel();
 			});
+			
 		}
 	}
 
-	public Receiver StartReceiver()
+	public async Task CheckTimeout()
 	{
-		lock (this)
+		do
 		{
-			if (Receiver == null) Receiver = new Receiver(this);
-			return Receiver;
+			var now = DateTime.Now;
+			if (Proxy.IdleTimeout != null && Proxy.IdleTimeout != TimeSpan.Zero &&
+				now - LastWork > Proxy.IdleTimeout ||
+				Proxy.Recycle != null && Proxy.Recycle != TimeSpan.Zero &&
+				now - Started > Proxy.Recycle)
+			{
+				Logger.LogInformation($"Shutdown {Application.Name}.");
+				Shutdown();
+				if (Proxy.IdleTimeout == TimeSpan.Zero)
+				{
+					// Immediately restart when IdleTimeout is set to zero
+					Proxy.StartServer();
+				}
+				return;
+			} else if (Kestrel != null && Kestrel.HasExited && !shuttingDown) // If Kestrel has stopped, restart it
+			{
+				KestrelRestarts++;
+				if (KestrelRestarts > MaxKestrelRestarts)
+				{
+					Logger.LogError($"Kestrel has exited too many times ({KestrelRestarts}), giving up on restarting.");
+					Shutdown();
+					return;
+				}
+				else
+				{
+					Proxy.Server = null;
+					Proxy.StartServer();
+				}
+			}
+			await Task.Delay(5000);
+		} while (Proxy.Cancel.IsCancellationRequested == false);
+		
+		if (Proxy.Cancel.IsCancellationRequested) Shutdown();
+	}
+	public async Task CopyAsync(TcpClient source, TcpClient destination)
+	{
+		if (source == null || destination == null) return;
+
+		using (var srcStream = source.GetStream())
+		using (var destStream = destination.GetStream())
+		{
+			// 3) Start bi‑directional copy tasks
+			var cts = new CancellationTokenSource();
+			var t1 = Pump(srcStream, destStream, cts.Token); // client → server
+			var t2 = Pump(destStream, srcStream, cts.Token); // server → client
+
+			await Task.WhenAny(t1, t2);
+			cts.Cancel();
+			await Task.WhenAll(t1.ContinueWith(t => { }), t2.ContinueWith(t => { }));
 		}
 	}
-	public async Task ListenAsync(TcpListener source, Func<Receiver, Task<TcpClient>> destination)
+
+	static async Task Pump(Stream src, Stream dst, CancellationToken ct)
 	{
-		source.Start(RequestQueueSize);
-
-		Logger.LogInformation($"{Application.Name} listening on {source.LocalEndpoint}");
-
-		while (!Cancel.IsCancellationRequested)
+		var buffer = ArrayPool<byte>.Shared.Rent(BufferSize);
+		try
 		{
-			try
+			while (true)
 			{
-				var client = await source.AcceptTcpClientAsync(Cancel.Token);
-				var receiver = StartReceiver();
-				var task = receiver.CopyAsync(client, await destination(receiver));
-			}
-			catch (SocketException ex)
-			{
-				Logger.LogError(ex, "Socket error while accepting TCP client");
-				Configuration.Current.ReportError("Socket error while accepting TCP client", ex);
+				int read = await src.ReadAsync(buffer, 0, buffer.Length, ct);
+				if (read == 0)
+					break;          // remote closed
+				await dst.WriteAsync(buffer, 0, read, ct);
+				await dst.FlushAsync(ct);
 			}
 		}
-	}
-	public async Task ListenAsync(UdpClient source, Func<Receiver, UdpClient> getDestination)
-	{
-		UdpClient destination = null;
-		Receiver receiver = null;
-		while (!Cancel.IsCancellationRequested && receiver?.Cancel.IsCancellationRequested != true)
+		catch (OperationCanceledException) { /* expected on shutdown */ }
+		catch (IOException) { /* connection reset */ }
+		finally
 		{
-			var packet = await source.ReceiveAsync();
-			if (destination == null)
-			{
-				lock (this)
-				{
-					if (Receiver == null) Receiver = new Receiver(this);
-					receiver = Receiver;
-				}
-				destination = getDestination(receiver);
-				lock (this)
-				{
-					if (Receiver == null) Receiver = new Receiver(this);
-					receiver = Receiver;
-				}
-				Task.Run(async () =>
-				{
-					while (!Cancel.IsCancellationRequested && !receiver.Cancel.IsCancellationRequested)
-					{
-						var packet = await destination.ReceiveAsync();
-						await source.SendAsync(packet.Buffer, packet.Buffer.Length);
-					}
-				});
-				while (!Cancel.IsCancellationRequested && !receiver.Cancel.IsCancellationRequested)
-				{
-					var packet2 = await source.ReceiveAsync();
-					await destination.SendAsync(packet2.Buffer, packet2.Buffer.Length);
-				}
-			}
+			ArrayPool<byte>.Shared.Return(buffer);
 		}
 	}
 }
-

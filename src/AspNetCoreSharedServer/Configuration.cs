@@ -176,10 +176,10 @@ public class Configuration
 					while (oi < oldApps.Count && string.Compare(oldApps[oi].Name, app.Name) < 0)
 					{
 						var oapp = oldApps[oi];
-						if (oapp.Server != null)
+						if (oapp.Proxy != null)
 						{
-							oapp.Server.Shutdown();
-							oapp.Server = null;
+							oapp.Proxy.Shutdown();
+							oapp.Proxy = null;
 						}
 						oi++;
 					}
@@ -191,16 +191,16 @@ public class Configuration
 							!oapp.Environment.Keys.All(key => app.Environment.ContainsKey(key) && app.Environment[key] == oapp.Environment[key]) ||
 							oapp.IdleTimeout != app.IdleTimeout || oapp.Recycle != app.Recycle)
 						{
-							if (oapp.Server != null)
+							if (oapp.Proxy != null)
 							{
-								oapp.Server.Shutdown();
-								oapp.Server = null;
+								oapp.Proxy.Shutdown();
+								oapp.Proxy = null;
 							}
 							Listen(app);
 						}
 						else
 						{
-							app.Server = oapp.Server;
+							app.Proxy = oapp.Proxy;
 						}
 						oi++;
 					}
@@ -213,10 +213,10 @@ public class Configuration
 				while (oi < oldApps.Count)
 				{
 					var oapp = oldApps[oi];
-					if (oapp.Server != null)
+					if (oapp.Proxy != null)
 					{
-						oapp.Server.Shutdown();
-						oapp.Server = null;
+						oapp.Proxy.Shutdown();
+						oapp.Proxy = null;
 					}
 					oi++;
 				}
@@ -239,7 +239,7 @@ public class Configuration
 #if Server
 		if (!IsShuttingDown)
 		{
-			var server = new Server(app);
+			var server = new Proxy(app);
 			Task.Run(() => server.ListenAsync());
 		}
 #endif
@@ -298,10 +298,10 @@ public class Configuration
 					oapp.IdleTimeout != app.IdleTimeout || oapp.Recycle != app.Recycle)
 				{
 #if Server
-					if (oapp.Server != null)
+					if (oapp.Proxy != null)
 					{
-						oapp.Server.Shutdown();
-						oapp.Server = null;
+						oapp.Proxy.Shutdown();
+						oapp.Proxy = null;
 					}
 #endif
 					Applications.Remove(oapp);
@@ -311,7 +311,7 @@ public class Configuration
 				else
 				{
 #if Server
-					app.Server = oapp.Server;
+					app.Proxy = oapp.Proxy;
 #endif
 					Applications.Remove(oapp);
 					Applications.Add(app);
@@ -336,10 +336,10 @@ public class Configuration
 			if (app != null)
 			{
 #if Server
-				if (app.Server != null)
+				if (app.Proxy != null)
 				{
-					app.Server.Shutdown();
-					app.Server = null;
+					app.Proxy.Shutdown();
+					app.Proxy = null;
 				}
 #endif
 				Applications.Remove(app);
@@ -376,11 +376,11 @@ public class Configuration
 		}
 		foreach (var app in Applications)
 		{
-			if (app.Server != null)
+			if (app.Proxy != null)
 			{
-				app.Server.Cancel.Cancel();
-				app.Server.Shutdown();
-				app.Server = null;
+				app.Proxy.Cancel.Cancel();
+				app.Proxy.Shutdown();
+				app.Proxy = null;
 			}
 		}
 #else
@@ -427,6 +427,6 @@ public class Application
 
 #if Server
 	[JsonIgnore]
-	public Server? Server { get; set; } = null;
+	public Proxy? Proxy { get; set; } = null;
 #endif
 }
