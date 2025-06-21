@@ -78,8 +78,10 @@ public class Configuration
 	public ILogger<Worker> Logger = null;
 #endif
 	public List<Application> Applications { get; set; } = new List<Application>();
-	public TimeSpan? IdleTimeout { get; set; } = TimeSpan.FromMinutes(5);
-	public TimeSpan? Recycle { get; set; } = TimeSpan.FromMinutes(20);
+	public readonly static TimeSpan GlobalIdleTimeout = TimeSpan.FromMinutes(20);
+	public readonly static TimeSpan GlobalRecycle = TimeSpan.FromHours(29);
+	public TimeSpan? IdleTimeout { get; set; } = GlobalIdleTimeout;
+	public TimeSpan? Recycle { get; set; } = GlobalRecycle;
 	[DefaultValue(false)]
 	public bool EnableHttp3 { get; set; } = true;
 	[DefaultValue(null)]

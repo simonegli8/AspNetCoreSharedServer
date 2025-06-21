@@ -21,8 +21,6 @@ public class Proxy
 	public string OriginalUrls = string.Empty;
 	public bool HasHttp = false, HasHttps = false;
 	public Dictionary<string, string> Environment = new Dictionary<string, string>();
-	public static TimeSpan GlobalIdleTimeout = TimeSpan.FromMinutes(5);
-	public static TimeSpan GlobalRecycle = TimeSpan.FromMinutes(20);
 	public TimeSpan? IdleTimeout = null;
 	public TimeSpan? Recycle = null;
 	public Server? Server = null;
@@ -41,8 +39,8 @@ public class Proxy
 		Environment = app.Environment ?? new Dictionary<string, string>();
 		ListenUrls = app.ListenUrls;
 		OriginalUrls = app.Urls;
-		IdleTimeout = app.IdleTimeout ?? Configuration.Current.IdleTimeout ?? GlobalIdleTimeout;
-		Recycle = app.Recycle ?? Configuration.Current.Recycle ?? GlobalRecycle;
+		IdleTimeout = app.IdleTimeout ?? Configuration.Current.IdleTimeout ?? Configuration.GlobalIdleTimeout;
+		Recycle = app.Recycle ?? Configuration.Current.Recycle ?? Configuration.GlobalRecycle;
 		EnableHttp3 = app.EnableHttp3 ?? EnableHttp3;
 
 		List<string> actualurls = new List<string>();
