@@ -1,4 +1,4 @@
-SET PackageVersion=1.0.18
+SET PackageVersion=1.0.22
 SET Configuration=Release
 
 del src\AspNetCoreSharedServer\bin\%Configuration%\*.nupkg

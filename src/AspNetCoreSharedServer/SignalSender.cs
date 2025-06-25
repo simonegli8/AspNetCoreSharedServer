@@ -24,7 +24,7 @@ public class SignalSender
 	public static void SendSigint(int pid)
 	{
 		try {
-			if (Environment.OSVersion.Platform != PlatformID.Win32NT)
+			if (!OSInfo.IsWindows)
 			{
 				// On Unix-like systems, use the native syscall to send SIGINT
 				Syscall.kill(pid, Signum.SIGINT);

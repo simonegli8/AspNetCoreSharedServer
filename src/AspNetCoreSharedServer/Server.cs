@@ -82,20 +82,28 @@ public class Server
 		info.WorkingDirectory = Path.GetDirectoryName(Application.Assembly);
 		var user = Application.User ?? Configuration.Current.User;
 		var group = Application.Group ?? Configuration.Current.Group;
-		if (Environment.OSVersion.Platform != PlatformID.Win32NT && Mono.Unix.Native.Syscall.getuid() == 0 &&
+		bool dotnet = Proxy.Assembly.EndsWith(".dll", StringComparison.InvariantCultureIgnoreCase);
+		if (!OSInfo.IsWindows && Mono.Unix.Native.Syscall.getuid() == 0 &&
 			!string.IsNullOrEmpty(user))
 		{
 			string groupArg = "";
 			if (!string.IsNullOrEmpty(group)) groupArg = $"-g  {group} ";
 			// If running as root, use sudo to drop privileges
 			info.FileName = "sudo";
-			info.Arguments = $"-E -u {user} {groupArg}-- dotnet \"{Proxy.Assembly}\"{(!string.IsNullOrEmpty(Proxy.Arguments) ? "" : " " + Proxy.Arguments)}";
+			info.Arguments = $"-E -u {user} {groupArg}-- {(dotnet ? "dotnet " : "")}\"{Proxy.Assembly}\"{(!string.IsNullOrEmpty(Proxy.Arguments) ? "" : " " + Proxy.Arguments)}";
 		}
 		else
 		{
 			// Otherwise, run dotnet directly
-			info.FileName = "dotnet";
-			info.Arguments = $"\"{Application.Assembly}\"{(!string.IsNullOrEmpty(Application.Arguments) ? "" : " " + Proxy.Arguments)}";
+			if (dotnet)
+			{
+				info.FileName = "dotnet";
+				info.Arguments = $"\"{Application.Assembly}\"{(!string.IsNullOrEmpty(Application.Arguments) ? "" : " " + Proxy.Arguments)}";
+			} else
+			{  // Assembly is AOT
+				info.FileName = Application.Assembly;
+				info.Arguments = Proxy.Arguments ?? "";
+			}
 		}
 		info.CreateNoWindow = false;
 		var urls = new StringBuilder();

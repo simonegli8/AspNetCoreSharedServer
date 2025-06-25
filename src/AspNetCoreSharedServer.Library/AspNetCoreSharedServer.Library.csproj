@@ -1,0 +1,53 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Worker">
+
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <TargetFramework>net8.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <RootNamespace>AspNetCoreSharedServer</RootNamespace>
+        <AssemblyName>AspNetCoreSharedServer</AssemblyName>
+        <IsPackable>true</IsPackable>
+        <PackageId>AspNetCoreSharedServer.Library</PackageId>
+        <PackageReadmeFile>README.md</PackageReadmeFile>
+        <DefineConstants>$(DefineConstants);Server</DefineConstants>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <Compile Include="..\AspNetCoreSharedServer\Configuration.cs">
+            <Link>Configuration.cs</Link>
+        </Compile>
+        <Compile Include="..\AspNetCoreSharedServer\OSInfo.cs">
+            <Link>OSInfo.cs</Link>
+        </Compile>
+        <Compile Include="..\AspNetCoreSharedServer\Program.cs">
+            <Link>Program.cs</Link>
+        </Compile>
+        <Compile Include="..\AspNetCoreSharedServer\Proxy.cs">
+            <Link>Proxy.cs</Link>
+        </Compile>
+        <Compile Include="..\AspNetCoreSharedServer\Server.cs">
+            <Link>Server.cs</Link>
+        </Compile>
+        <Compile Include="..\AspNetCoreSharedServer\SignalSender.cs">
+            <Link>SignalSender.cs</Link>
+        </Compile>
+        <Compile Include="..\AspNetCoreSharedServer\Worker.cs">
+            <Link>Worker.cs</Link>
+        </Compile>
+    </ItemGroup>
+    
+    <ItemGroup>
+        <Content Include="..\AspNetCoreSharedServer\README.md" Pack="true" PackagePath="\">
+            <Link>README.md</Link>
+        </Content>
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Include="MedallionShell" Version="1.6.2" />
+        <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.1" />
+        <PackageReference Include="Mono.Cecil" Version="0.11.6" />
+        <PackageReference Include="Mono.Posix.NETStandard" Version="1.0.0" />
+        <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    </ItemGroup>
+</Project>

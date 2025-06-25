@@ -1,9 +1,12 @@
-﻿using Mono.Unix.Native;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Converters;
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using System.Net;
 using System.Net.Sockets;
+using System.Xml.Linq;
+using System.Diagnostics;
+using Mono.Cecil;
+using Mono.Unix.Native;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Converters;
 
 namespace AspNetCoreSharedServer;
 
@@ -70,7 +73,7 @@ public class Configuration
 	}
 
 	[JsonIgnore]
-	public string ConfigPath => Environment.OSVersion.Platform == PlatformID.Win32NT ?
+	public string ConfigPath => OSInfo.IsWindows ?
 		Path.Combine(Environment.CurrentDirectory, "applications.json") :
 		"/etc/aspnetcore/applications.json";
 #if Server
@@ -155,14 +158,14 @@ public class Configuration
 					.ToList();
 
 				// If not runnig as root, forbid User & Group settings
-				if (Environment.OSVersion.Platform != PlatformID.Win32NT && Syscall.getuid() != 0)
+				if (!OSInfo.IsWindows && Syscall.getuid() != 0)
 				{
 					if (newApps.Any(app => !string.IsNullOrEmpty(app.User) || !string.IsNullOrEmpty(app.Group)))
 					{
 						Logger.LogError("Cannot set User or Group of Application when not running AspNetCoreSharedServer as root.");
 						return;
 					}
-				} else if (Environment.OSVersion.Platform != PlatformID.Win32NT && Syscall.getuid() == 0)
+				} else if (OSInfo.IsWindows && Syscall.getuid() == 0)
 				{
 					if (watcher != null) watcher.EnableRaisingEvents = false;
 					// If running as root, set permissions to read/write for root only
@@ -255,7 +258,7 @@ public class Configuration
 			if (watcher != null && disableWatcher) watcher.EnableRaisingEvents = false;
 			File.WriteAllText(ConfigPath, txt);
 			// If runnig as root, set permissions to read/write for root only
-			if (Environment.OSVersion.Platform != PlatformID.Win32NT && Syscall.getuid() == 0)
+			if (!OSInfo.IsWindows && Syscall.getuid() == 0)
 			{
 				Syscall.chmod(Path.GetDirectoryName(ConfigPath), FilePermissions.S_IRUSR | FilePermissions.S_IWUSR);
 				Syscall.chmod(ConfigPath, FilePermissions.S_IRUSR | FilePermissions.S_IWUSR);
@@ -431,4 +434,85 @@ public class Application
 	[JsonIgnore]
 	public Proxy? Proxy { get; set; } = null;
 #endif
+
+	public static IEnumerable<string> FindAssemblies(string path)
+	{
+		if (string.IsNullOrEmpty(path) || !Directory.Exists(path)) yield break;
+
+		var webConfig = System.IO.Path.Combine(path, "web.config");
+		if (File.Exists(webConfig))
+		{
+			// If web.config exists, it's likely an ASP.NET application
+			var xml = System.Xml.Linq.XDocument.Load(webConfig);
+			var webServer = xml.Descendants("system.webServer").FirstOrDefault();
+			var aspNetCore = webServer?.Element("aspNetCore");
+			if (aspNetCore != null)
+			{
+				var process = aspNetCore.Attribute("processPath")?.Value;
+				if (process == "dotnet")
+				{
+					var arguments = aspNetCore.Attribute("arguments")?.Value;
+					if (!string.IsNullOrEmpty(arguments))
+					{
+						yield return System.IO.Path.Combine(path, arguments);
+					}
+				} else if (!string.IsNullOrEmpty(process)) yield return System.IO.Path.Combine(path, process);
+			}
+			yield break;
+		}
+
+		foreach (var file in Directory.GetFiles(path, "*.*", SearchOption.TopDirectoryOnly))
+		{
+			if (file.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+			{
+				AssemblyDefinition assembly = null;
+				try
+				{
+					assembly = AssemblyDefinition.ReadAssembly(file);
+				}
+				catch { }
+				var targetFramework = assembly?.CustomAttributes
+					.FirstOrDefault(attr => attr.AttributeType.FullName == "System.Runtime.Versioning.TargetFrameworkAttribute")
+					?.ConstructorArguments.FirstOrDefault().Value as string;
+				if (targetFramework != null && targetFramework.IndexOf("Framework", StringComparison.OrdinalIgnoreCase) < 0 &&
+					assembly!.EntryPoint != null &&
+					assembly.Modules.Any(mod => mod.GetTypeReferences().Any(t => t.FullName.StartsWith("Microsoft.AspNetCore."))))
+					yield return file;
+			}
+			else if (OSInfo.IsWindows)
+			{
+				if (file.EndsWith("*.exe", StringComparison.OrdinalIgnoreCase) && !File.Exists(System.IO.Path.ChangeExtension(file, ".dll")))
+					yield return file;
+			}
+			else if (OSInfo.IsLinux)
+			{
+				var bytes = new byte[4];
+				using (var stream = new FileStream(file, FileMode.Open, FileAccess.Read))
+				{
+					stream.Read(bytes, 0, 4);
+					// Check for ELF magic number
+					if (bytes[0] == 0x7F && bytes[1] == 0x45 && bytes[2] == 0x4C && bytes[3] == 0x46 ||
+						bytes[0] == 0x23 && bytes[1] == 0x21) // #! shebang
+					{
+						yield return file;
+					}
+				}
+			}
+			else if (OSInfo.IsMac)
+			{
+				var bytes = new byte[4];
+				using (var stream = new FileStream(file, FileMode.Open, FileAccess.Read))
+				{
+					stream.Read(bytes, 0, 4);
+					// Is Mac executable (AOT)
+					if (bytes[0] == 0xFE && bytes[1] == 0xED && bytes[2] == 0xFA && bytes[3] == 0xCE ||
+						bytes[0] == 0xCE && bytes[1] == 0xFA && bytes[2] == 0xED && bytes[3] == 0xFE ||
+						bytes[0] == 0xCF && bytes[1] == 0xFA && bytes[2] == 0xED && bytes[3] == 0xFE)
+					{
+						yield return file;
+					}
+				}
+			}
+		}
+	}
 }
