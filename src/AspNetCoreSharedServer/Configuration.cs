@@ -149,6 +149,8 @@ public class Configuration
 				IdleTimeout = config.IdleTimeout;
 				Recycle = config.Recycle;
 				EnableHttp3 = config.EnableHttp3;
+				var ouser = User;
+				User = config.User;
 
 				var oldApps = Applications
 					.OrderBy(app => app.Name)
@@ -192,7 +194,7 @@ public class Configuration
 					{
 						var oapp = oldApps[oi];
 						if (oapp.Assembly != app.Assembly || oapp.Urls != app.Urls || oapp.Arguments != app.Arguments ||
-							oapp.ListenUrls != app.ListenUrls || oapp.User != app.User || oapp.Group != app.Group ||
+							oapp.ListenUrls != app.ListenUrls || ((oapp.User ?? ouser) != (app.User ?? User)) || oapp.Group != app.Group ||
 							!oapp.Environment.Keys.All(key => app.Environment.ContainsKey(key) && app.Environment[key] == oapp.Environment[key]) ||
 							oapp.IdleTimeout != app.IdleTimeout || oapp.Recycle != app.Recycle)
 						{
@@ -230,6 +232,12 @@ public class Configuration
 
 				if (!File.Exists(ConfigPath)) Save(true);
 				else SaveIfDirty(true);
+#else
+				IdleTimeout = config.IdleTimeout;
+				Recycle = config.Recycle;
+				EnableHttp3 = config.EnableHttp3;
+				Applications = config.Applications;
+				User = config.User;
 #endif
 			}
 			finally
