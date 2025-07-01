@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Xml.Linq;
 using System.Diagnostics;
+using System.Linq;
 using Mono.Cecil;
 using Mono.Unix.Native;
 using Newtonsoft.Json;
@@ -40,6 +41,8 @@ public class Configuration
 		Socket socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
 		try
 		{
+			Configuration.Current.Load();
+			var apps = Configuration.Current.Applications;
 			IPEndPoint localEP;
 			if (temporary) {
 				localEP = new IPEndPoint(IPAddress.Any, 0);
@@ -47,14 +50,24 @@ public class Configuration
 			} else
 			{
 				port = StartPort;
+				var usedPorts = new HashSet<int>(apps
+					.SelectMany(app => app.ListenUrls.Split(';').Select(url => new Uri(url).Port)));
 				do
 				{
 					try
 					{
-						localEP = new IPEndPoint(IPAddress.Any, port++);
-						socket.Bind(localEP);
-						StartPort++; // Increment the start port for the next call
-						break;
+						if (usedPorts.Contains(port))
+						{
+							port++;
+							StartPort++;
+						}
+						else
+						{
+							localEP = new IPEndPoint(IPAddress.Any, port++);
+							socket.Bind(localEP);
+							StartPort++; // Increment the start port for the next call
+							break;
+						}
 					}
 					catch (SocketException)
 					{
@@ -123,6 +136,7 @@ public class Configuration
 #if Server
 						Logger.LogError(ex, "Failed to read configuration file {ConfigPath}", ConfigPath);
 #endif
+						throw;
 					}
 				}
 				else
