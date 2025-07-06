@@ -114,7 +114,7 @@ var app = Configuration.Current.Applications.FirstOrDefault(app => app.Name == "
 ...
 ```
 
-To Find a free IP port:
+To find a free IP port:
 ```
 var port = Configuration.Current.FindFreePort();
 ```
