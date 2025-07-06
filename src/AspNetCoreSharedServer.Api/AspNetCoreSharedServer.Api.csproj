@@ -4,10 +4,29 @@
         <TargetFramework>netstandard2.0</TargetFramework>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
+        <LangVersion>13</LangVersion>
+
         <IsPackable>true</IsPackable>
         <PackageId>AspNetCoreSharedServer.Api</PackageId>
         <PackageReadmeFile>README.md</PackageReadmeFile>
-        <LangVersion>13</LangVersion>
+        <Title>AspNetCoreSharedServer.Api</Title>
+        <Authors>simonegli8</Authors>
+        <Company>Estrellas de Esperanza</Company>
+        <Product>AspNetCoreSharedServer.Api</Product>
+        <Description>Api to handle configuration of AspNetCoreSharedServer.
+            AspNetCoreSharedServer is a proxy HTTP server for serving ASP.NET Core Kestrel behind a proxy like Apache or Nginx in shared hosting to only
+            start Kestrel on demand and shut it down when idle.
+        </Description>
+        <Copyright>Estrellas de Esperanza</Copyright>
+        <PackageProjectUrl>https://github.com/simonegli8/AspNetCoreSharedServer</PackageProjectUrl>
+        <RepositoryUrl>https://github.com/simonegli8/AspNetCoreSharedServer</RepositoryUrl>
+        <RepositoryType>git</RepositoryType>
+        <PackageTags>ASP.NET Core;shared hosting;running Kestrel on demand</PackageTags>
+        <AssemblyVersion>1.0.26.0</AssemblyVersion>
+        <FileVersion>1.0.26.0</FileVersion>
+        <PackageLicenseExpression>MIT</PackageLicenseExpression>
+        <IncludeSymbols>false</IncludeSymbols>
+        <PublishRepositoryUrl>true</PublishRepositoryUrl>
     </PropertyGroup>
 
     <ItemGroup>

@@ -52,10 +52,12 @@ When the configuration is changed, changes are applied on the fly. The applicati
       "Assembly": "/Path/To/ASPNETCoreApp.dll",
       "Arguments": "",
       "Urls": "http://original-domain.org",
-      "ListenUrls": "http://localhost",
+      "ListenUrls": "http://localhost:10000",
       "Environment": {
         "ASPNETCORE_ENVIRONMENT": "Production"
       }
+      "IdleTimeout": 300,
+      "Recycle": 1200
     }, 
     ... more applications can be defined here ...
   ]
@@ -67,10 +69,52 @@ When the configuration is changed, changes are applied on the fly. The applicati
 - `Urls` is the original URL that the application will respond to. This are the urls as received by the proxy server.
 - `ListenUrls` are the URLs that this Application will listen on. This is where the proxy server will forward requests to.
   You can omit the port in this urls and AspNetCoreSharedServer will automatically assign a port.
-- `IdleTimeout` is the time in seconds after which the application will be stopped when it is idle.
-- `Recycle` is the time in seconds after which the application will be restarted, regardless of activity.
+- `IdleTimeout` is the time in seconds or JSON time value after which the application will be stopped when it is idle.
+- `Recycle` is the time in seconds or JSON time value after which the application will be restarted, regardless of activity.
 - `Environment` is a dictionary of environment variables that will be set for the application when it is started.
 
 After you have defined your applications in the applications.json file, you can proxy to the sockets specified in ListenUrls 
 from Apache or Nginx. The original Urls that Apache or Nginx serve will be passed to Kestrel as a environment varibale
 ORIGINAL_URLS from the Urls parameter in applications.json.
+
+You can also manage the applications.json file programmatically by using AspNetCoreSharedServer.Api:
+Import AspNetCoreSharedServer.Api via nuget to your project.
+
+```
+using AspNetCoreSharedServer;
+...
+var app = new Application()
+{
+	Name = "Name of the ASP.NET Core application",
+	Assembly = "Startup Assembly",
+	Arguments = "Startup Arguments",
+	Environment = new Dictionary<string, string>()
+	{
+		{ "ASPNETCORE_ENVIRONMENT", "Production" }
+	},
+	ListenUrls = "http://localhost:10000",
+	Urls = "http://original-domain.org",
+};
+Configuration.Current.Update(app);
+or
+Configuration.Current.Add(app);
+or
+Configuration.Current.Remove(app);
+or
+Configuration.Current.Remove("App Name");
+```
+
+Or to lookup an application:
+
+```
+using AspNetCoreSharedServer;
+...
+Configuration.Current.Load();
+var app = Configuration.Current.Applications.FirstOrDefault(app => app.Name == "Name of Application");
+...
+```
+
+To Find a free IP port:
+```
+var port = Configuration.Current.FindFreePort();
+```

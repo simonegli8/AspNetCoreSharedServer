@@ -7,10 +7,30 @@
         <Nullable>enable</Nullable>
         <RootNamespace>AspNetCoreSharedServer</RootNamespace>
         <AssemblyName>AspNetCoreSharedServer</AssemblyName>
+        <DefineConstants>$(DefineConstants);Server</DefineConstants>
+
         <IsPackable>true</IsPackable>
         <PackageId>AspNetCoreSharedServer.Library</PackageId>
         <PackageReadmeFile>README.md</PackageReadmeFile>
-        <DefineConstants>$(DefineConstants);Server</DefineConstants>
+        <Title>AspNetCoreSharedServer.Library</Title>
+        <Authors>simonegli8</Authors>
+        <Company>Estrellas de Esperanza</Company>
+        <Product>AspNetCoreSharedServer.Api</Product>
+        <Description>
+            AspNetCoreSharedServer as DLL, that you can import and start with dotnet.
+            AspNetCoreSharedServer is a proxy HTTP server for serving ASP.NET Core Kestrel behind a proxy like Apache or Nginx in shared hosting to only
+            start Kestrel on demand and shut it down when idle.
+        </Description>
+        <Copyright>Estrellas de Esperanza</Copyright>
+        <PackageProjectUrl>https://github.com/simonegli8/AspNetCoreSharedServer</PackageProjectUrl>
+        <RepositoryUrl>https://github.com/simonegli8/AspNetCoreSharedServer</RepositoryUrl>
+        <RepositoryType>git</RepositoryType>
+        <PackageTags>ASP.NET Core;shared hosting;running Kestrel on demand</PackageTags>
+        <AssemblyVersion>1.0.26.0</AssemblyVersion>
+        <FileVersion>1.0.26.0</FileVersion>
+        <PackageLicenseExpression>MIT</PackageLicenseExpression>
+        <IncludeSymbols>false</IncludeSymbols>
+        <PublishRepositoryUrl>true</PublishRepositoryUrl>
     </PropertyGroup>
 
     <ItemGroup>
