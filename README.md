@@ -90,7 +90,7 @@ var app = new Application()
 	Arguments = "Startup Arguments",
 	Environment = new Dictionary<string, string>()
 	{
-		{ "ASPNETCORE_ENVIRONMENT", "Production" }
+        { "ASPNETCORE_ENVIRONMENT", "Production" }
 	},
 	ListenUrls = "http://localhost:10000",
 	Urls = "http://original-domain.org",
