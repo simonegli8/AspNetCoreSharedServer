@@ -92,13 +92,35 @@ public class Proxy
 			Task? t1 = null, t2 = null, t3 = null, t4 = null;
 			if (HasHttp)
 			{
-				Http = new TcpListener(IPAddress.Loopback, httpPort);
-				t1 = ListenAsync(Http, server => server.HttpDest());
+				IPAddress ip;
+				bool hasAddress = true;
+				if (httpUri.Host == "0.0.0.0") ip = IPAddress.Any;
+				else if (httpUri.Host == "[::]") ip = IPAddress.IPv6Any;
+				else if (httpUri.Host == "127.0.0.1" || httpUri.Host == "localhost") ip = IPAddress.Loopback;
+				else if (httpUri.Host == "[::1]") ip = IPAddress.IPv6Loopback;
+				else if (!IPAddress.TryParse(httpUri.Host, out ip)) hasAddress = false;
+
+				if (hasAddress)
+				{
+					Http = new TcpListener(ip, httpPort);
+					t1 = ListenAsync(Http, server => server.HttpDest());
+				}
 			}
 			if (HasHttps)
 			{
-				Http = new TcpListener(IPAddress.Loopback, httpsPort);
-				t2 = ListenAsync(Https, server => server.HttpsDest());
+				IPAddress ip;
+				bool hasAddress = true;
+				if (httpsUri.Host == "0.0.0.0") ip = IPAddress.Any;
+				else if (httpsUri.Host == "[::]") ip = IPAddress.IPv6Any;
+				else if (httpsUri.Host == "127.0.0.1" || httpsUri.Host == "localhost") ip = IPAddress.Loopback;
+				else if (httpsUri.Host == "[::1]") ip = IPAddress.IPv6Loopback;
+				else if (!IPAddress.TryParse(httpsUri.Host, out ip)) hasAddress = false;
+
+				if (hasAddress)
+				{
+					Http = new TcpListener(ip, httpsPort);
+					t2 = ListenAsync(Https, server => server.HttpsDest());
+				}
 			}
 			if (QuicHttp != null) t3 = ListenAsync(QuicHttp, server => server.QuicHttpDest);
 			if (QuicHttps != null) t4 = ListenAsync(QuicHttps, server => server.QuicHttpsDest);
