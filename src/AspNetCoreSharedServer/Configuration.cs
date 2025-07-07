@@ -181,7 +181,7 @@ public class Configuration
 						Logger.LogError("Cannot set User or Group of Application when not running AspNetCoreSharedServer as root.");
 						return;
 					}
-				} else if (OSInfo.IsWindows && Syscall.getuid() == 0)
+				} else if (!OSInfo.IsWindows && Syscall.getuid() == 0)
 				{
 					if (watcher != null) watcher.EnableRaisingEvents = false;
 					// If running as root, set permissions to read/write for root only
