@@ -2,21 +2,18 @@
   "Applications": [
     {
       "Name": "Test",
-      "ListenUrls": "http://127.0.0.1:10000",
-      "Urls": "",
+      "ListenUrls": "http://127.0.0.1:10000/",
       "Environment": {},
       "Assembly": "C:\\GitHub\\WebHostingCP\\HostPanelPro\\Sources\\HostPanelPro.Server\\bin_dotnet\\HostPanelPro.Server.dll",
-      "Arguments": "",
       "IdleTimeout": "00:05:00",
       "Recycle": "00:20:00"
     },
     {
       "Name": "TestApp",
-      "ListenUrls": "http://127.0.0.1:9063",
+      "ListenUrls": "http://google.com:9063/",
       "Urls": "http://localhost:9063",
       "Environment": {},
       "Assembly": "C:\\GitHub\\AspNetCoreSharedServer\\src\\AspNetCoreTestApp\\bin\\Debug\\net8.0\\AspNetCoreTestApp.dll",
-      "Arguments": "",
       "IdleTimeout": "00:05:00",
       "Recycle": "00:20:00"
     }

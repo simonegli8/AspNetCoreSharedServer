@@ -26,7 +26,7 @@ public class Proxy
 	public Server? Server = null;
 	public ILogger Logger => Configuration.Current.Logger;
 
-	public TcpListener Http, Https;
+	public List<TcpListener> Http = new List<TcpListener>(), Https = new List<TcpListener>();
 	public UdpClient? QuicHttp, QuicHttps;
 	Uri? httpUri = null, httpsUri = null;
 	int httpPort = -1, httpsPort = -1;
@@ -62,16 +62,30 @@ public class Proxy
 		}
 		if (HasHttp)
 		{
-			if (httpUri.Port == 80) httpPort = Configuration.FindFreePort();
-			else httpPort = httpUri.Port;
-			actualurls.Add($"http://{IPAddress.Loopback}:{httpPort}");
+			if (httpUri.Port == 80)
+			{
+				httpPort = Configuration.FindFreePort();
+				actualurls.Add($"http://{httpUri.Host}:{httpPort}");
+			}
+			else
+			{
+				httpPort = httpUri.Port;
+				actualurls.Add(httpUri.ToString());
+			}
 		}
-
+		
 		if (HasHttps)
 		{
-			if (httpsUri.Port == 443) httpsPort = Configuration.FindFreePort();
-			else httpsPort = httpsUri.Port;
-			actualurls.Add($"http://{IPAddress.Loopback}:{httpsPort}");
+			if (httpsUri.Port == 443)
+			{
+				httpsPort = Configuration.FindFreePort();
+				actualurls.Add($"http://{httpsUri.Host}:{httpsPort}");
+			}
+			else
+			{
+				httpsPort = httpsUri.Port;
+				actualurls.Add(httpsUri.ToString());
+			}
 		}
 
 		Application.ListenUrls = ListenUrls = string.Join(";", actualurls);
@@ -92,35 +106,43 @@ public class Proxy
 			Task? t1 = null, t2 = null, t3 = null, t4 = null;
 			if (HasHttp)
 			{
-				IPAddress ip;
-				bool hasAddress = true;
-				if (httpUri.Host == "0.0.0.0") ip = IPAddress.Any;
-				else if (httpUri.Host == "[::]") ip = IPAddress.IPv6Any;
-				else if (httpUri.Host == "127.0.0.1" || httpUri.Host == "localhost") ip = IPAddress.Loopback;
-				else if (httpUri.Host == "[::1]") ip = IPAddress.IPv6Loopback;
-				else if (!IPAddress.TryParse(httpUri.Host, out ip)) hasAddress = false;
-
-				if (hasAddress)
+				IPAddress? ip;
+				List<IPAddress> ips = new List<IPAddress>();
+				if (httpUri.Host == "0.0.0.0") ips.Add(IPAddress.Any);
+				else if (httpUri.Host == "[::]") ips.Add(IPAddress.IPv6Any);
+				else if (httpUri.Host == "127.0.0.1") ips.Add(IPAddress.Loopback);
+				else if (httpUri.Host == "[::1]") ips.Add(IPAddress.IPv6Loopback);
+				else if (IPAddress.TryParse(httpUri.Host, out ip)) ips.Add(ip);
+				else
 				{
-					Http = new TcpListener(ip, httpPort);
-					t1 = ListenAsync(Http, server => server.HttpDest());
+					ips.AddRange((await Dns.GetHostAddressesAsync(httpUri.Host))
+						.Distinct());
 				}
+				if (!ips.Any()) ips = new List<IPAddress>() { IPAddress.Any, IPAddress.IPv6Any };
+				Http.Clear();
+				foreach (var ipadr in ips) Http.Add(new TcpListener(ipadr, httpPort));
+
+				t1 = ListenAsync(Http, server => server.HttpDest());
 			}
 			if (HasHttps)
 			{
-				IPAddress ip;
-				bool hasAddress = true;
-				if (httpsUri.Host == "0.0.0.0") ip = IPAddress.Any;
-				else if (httpsUri.Host == "[::]") ip = IPAddress.IPv6Any;
-				else if (httpsUri.Host == "127.0.0.1" || httpsUri.Host == "localhost") ip = IPAddress.Loopback;
-				else if (httpsUri.Host == "[::1]") ip = IPAddress.IPv6Loopback;
-				else if (!IPAddress.TryParse(httpsUri.Host, out ip)) hasAddress = false;
-
-				if (hasAddress)
+				IPAddress? ip;
+				List<IPAddress> ips = new List<IPAddress>();
+				if (httpsUri.Host == "0.0.0.0") ips.Add(IPAddress.Any);
+				else if (httpsUri.Host == "[::]") ips.Add(IPAddress.IPv6Any);
+				else if (httpsUri.Host == "127.0.0.1") ips.Add(IPAddress.Loopback);
+				else if (httpsUri.Host == "[::1]") ips.Add(IPAddress.IPv6Loopback);
+				else if (IPAddress.TryParse(httpsUri.Host, out ip)) ips.Add(ip);
+				else
 				{
-					Http = new TcpListener(ip, httpsPort);
-					t2 = ListenAsync(Https, server => server.HttpsDest());
+					ips.AddRange((await Dns.GetHostAddressesAsync(httpsUri.Host))
+						.Distinct());
 				}
+				if (!ips.Any()) ips = new List<IPAddress>() { IPAddress.Any, IPAddress.IPv6Any };
+				Https.Clear();
+				foreach (var ipadr in ips) Https.Add(new TcpListener(ipadr, httpsPort));
+
+				t2 = ListenAsync(Https, server => server.HttpsDest());
 			}
 			if (QuicHttp != null) t3 = ListenAsync(QuicHttp, server => server.QuicHttpDest);
 			if (QuicHttps != null) t4 = ListenAsync(QuicHttps, server => server.QuicHttpsDest);
@@ -181,19 +203,29 @@ public class Proxy
 			return Server;
 		}
 	}
-	public async Task ListenAsync(TcpListener source, Func<Server, Task<TcpClient>> destination)
+	public async Task ListenAsync(List<TcpListener> sources, Func<Server, Task<TcpClient>> destination)
 	{
-		source.Start(RequestQueueSize);
-
-		Logger.LogInformation($"{Application.Name} listening on {source.LocalEndpoint}");
+		foreach (var source in sources.ToArray())
+		{
+			try
+			{
+				source.Start(RequestQueueSize);
+				Logger.LogInformation($"{Application.Name} listening on {source.LocalEndpoint}");
+			}
+			catch (Exception ex)
+			{
+				sources.Remove(source);
+				Logger.LogError($"{Application.Name} listening on {source.LocalEndpoint} failed:{System.Environment.NewLine}{ex}");
+			}
+		}
 
 		while (!Cancel.IsCancellationRequested)
 		{
 			try
 			{
-				var client = await source.AcceptTcpClientAsync(Cancel.Token);
+				var client = await Task.WhenAny<TcpClient>(sources.Select(async src => await src.AcceptTcpClientAsync(Cancel.Token)));
 				var server = StartServer();
-				var task = server.CopyAsync(client, await destination(server));
+				var task = server.CopyAsync(await client, await destination(server));
 			}
 			catch (SocketException ex)
 			{

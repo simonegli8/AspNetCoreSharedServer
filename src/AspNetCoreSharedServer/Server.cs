@@ -35,7 +35,7 @@ public class Server
 				await Task.Delay(10, cancel.Token);
 				try
 				{
-					await client.ConnectAsync(new IPEndPoint(IPAddress.Loopback, port), cancel.Token);
+					await client.ConnectAsync(new IPEndPoint(IPAddress.IPv6Loopback, port), cancel.Token);
 				}
 				catch (Exception ex)
 				{
