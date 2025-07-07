@@ -205,27 +205,28 @@ public class Proxy
 	}
 	public async Task ListenAsync(List<TcpListener> sources, Func<Server, Task<TcpClient>> destination)
 	{
-		foreach (var source in sources.ToArray())
+		await Task.WhenAll(sources.Select(source => ListenAsync(source, destination)));
+	}
+	public async Task ListenAsync(TcpListener source, Func<Server, Task<TcpClient>> destination)
+	{
+		try
 		{
-			try
-			{
-				source.Start(RequestQueueSize);
-				Logger.LogInformation($"{Application.Name} listening on {source.LocalEndpoint}");
-			}
-			catch (Exception ex)
-			{
-				sources.Remove(source);
-				Logger.LogError($"{Application.Name} listening on {source.LocalEndpoint} failed:{System.Environment.NewLine}{ex}");
-			}
+			source.Start(RequestQueueSize);
+			Logger.LogInformation($"{Application.Name} listening on {source.LocalEndpoint}");
 		}
-
+		catch (Exception ex)
+		{
+			Logger.LogError($"{Application.Name} listening on {source.LocalEndpoint} failed: {ex.Message}");
+			return;
+		}
+		
 		while (!Cancel.IsCancellationRequested)
 		{
 			try
 			{
-				var client = await Task.WhenAny<TcpClient>(sources.Select(async src => await src.AcceptTcpClientAsync(Cancel.Token)));
+				var client = await source.AcceptTcpClientAsync(Cancel.Token);
 				var server = StartServer();
-				var task = server.CopyAsync(await client, await destination(server));
+				var task = server.CopyAsync(client, await destination(server));
 			}
 			catch (SocketException ex)
 			{
