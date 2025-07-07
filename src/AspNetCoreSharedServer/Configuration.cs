@@ -181,14 +181,15 @@ public class Configuration
 						Logger.LogError("Cannot set User or Group of Application when not running AspNetCoreSharedServer as root.");
 						return;
 					}
-				} else if (!OSInfo.IsWindows && Syscall.getuid() == 0)
+				} /*else if (!OSInfo.IsWindows && Syscall.getuid() == 0)
 				{
 					if (watcher != null) watcher.EnableRaisingEvents = false;
 					// If running as root, set permissions to read/write for root only
 					Syscall.chmod(Path.GetDirectoryName(ConfigPath), FilePermissions.S_IRUSR | FilePermissions.S_IWUSR);
 					Syscall.chmod(ConfigPath, FilePermissions.S_IRUSR | FilePermissions.S_IWUSR);
+					Thread.Sleep(100);
 					if (watcher != null) watcher.EnableRaisingEvents = true;
-				}
+				}*/
 
 				int i = 0, oi = 0;
 				for (i = 0; i < newApps.Count; i++)
@@ -288,6 +289,7 @@ public class Configuration
 				Syscall.chmod(Path.GetDirectoryName(ConfigPath), FilePermissions.S_IRUSR | FilePermissions.S_IWUSR);
 				Syscall.chmod(ConfigPath, FilePermissions.S_IRUSR | FilePermissions.S_IWUSR);
 			}
+			Thread.Sleep(100);
 			if (watcher != null && disableWatcher) watcher.EnableRaisingEvents = true;
 			foreach (var app in Applications) app.Dirty = false;
 		}
