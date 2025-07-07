@@ -273,6 +273,9 @@ public class Configuration
 	}
 	public void Save(bool disableWatcher = false)
 	{
+		var dir = Path.GetDirectoryName(ConfigPath);
+		if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
+
 		using (var mutex = new NamedMutex())
 		{
 			var txt = JsonConvert.SerializeObject(this, Formatting.Indented, 
@@ -298,6 +301,9 @@ public class Configuration
 	}
 	public void ReportError(string message, Exception ex)
 	{
+		var dir = Path.GetDirectoryName(ConfigPath);
+		if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
+
 		File.WriteAllText(Path.ChangeExtension(ConfigPath, "error"), message + Environment.NewLine + ex.ToString());
 	}
 	public void RemoveError()

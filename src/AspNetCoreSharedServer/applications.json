@@ -12,8 +12,8 @@
     },
     {
       "Name": "TestApp",
-      "ListenUrls": "http://127.0.0.1:10001",
-      "Urls": "",
+      "ListenUrls": "http://127.0.0.1:9063",
+      "Urls": "http://localhost:9063",
       "Environment": {},
       "Assembly": "C:\\GitHub\\AspNetCoreSharedServer\\src\\AspNetCoreTestApp\\bin\\Debug\\net8.0\\AspNetCoreTestApp.dll",
       "Arguments": "",
