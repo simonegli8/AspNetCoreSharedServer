@@ -90,7 +90,7 @@ public class Server
 			if (!string.IsNullOrEmpty(group)) groupArg = $"-g  {group} ";
 			// If running as root, use sudo to drop privileges
 			info.FileName = "sudo";
-			info.Arguments = $"-E -u {user} {groupArg}-- {(dotnet ? "dotnet " : "")}\"{Proxy.Assembly}\"{(!string.IsNullOrEmpty(Proxy.Arguments) ? "" : " " + Proxy.Arguments)}";
+			info.Arguments = $"-u {user} {groupArg}-- {(dotnet ? "dotnet " : "")}\"{Proxy.Assembly}\"{(!string.IsNullOrEmpty(Proxy.Arguments) ? "" : " " + Proxy.Arguments)}";
 		}
 		else
 		{
@@ -124,6 +124,8 @@ public class Server
 		info.RedirectStandardInput = true;
 		info.UseShellExecute = false;
 		info.WindowStyle = ProcessWindowStyle.Normal;
+		Logger.LogInformation($"{(!string.IsNullOrEmpty(user) ? user : "")}>{info.FileName} {info.Arguments}");
+
 		Kestrel = Process.Start(info);
 
 		Ticks = DateTime.Now.ToBinary();
