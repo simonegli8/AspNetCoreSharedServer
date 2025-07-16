@@ -78,6 +78,13 @@ public class Server
 			if (HttpsPort > -1) QuicHttpsDest = new UdpClient(new IPEndPoint(IPAddress.IPv6Loopback, HttpsPort));
 		}
 
+		var urls = new StringBuilder();
+		if (Proxy.HasHttp) urls.Append($"http://[::1]:{HttpPort}");
+		if (Proxy.HasHttps)
+		{
+			if (urls.Length > 0) urls.Append(';');
+			urls.Append($"https://[::1]:{HttpsPort}");
+		}
 		var info = new ProcessStartInfo();
 		info.WorkingDirectory = Path.GetDirectoryName(Application.Assembly);
 		var user = Application.User ?? Configuration.Current.User;
@@ -89,8 +96,9 @@ public class Server
 			string groupArg = "";
 			if (!string.IsNullOrEmpty(group)) groupArg = $"-g  {group} ";
 			// If running as root, use sudo to drop privileges
+			var env = $"ASPNETCORE_URLS={urls} ORIGINAL_URLS={Application.Urls ?? ""} ";
 			info.FileName = "sudo";
-			info.Arguments = $"-u {user} {groupArg}-- {(dotnet ? "dotnet " : "")}\"{Proxy.Assembly}\"{(!string.IsNullOrEmpty(Proxy.Arguments) ? "" : " " + Proxy.Arguments)}";
+			info.Arguments = $"-u {user} {groupArg}{env}-- {(dotnet ? "dotnet " : "")}\"{Proxy.Assembly}\"{(!string.IsNullOrEmpty(Proxy.Arguments) ? "" : " " + Proxy.Arguments)}";
 		}
 		else
 		{
@@ -106,13 +114,6 @@ public class Server
 			}
 		}
 		info.CreateNoWindow = false;
-		var urls = new StringBuilder();
-		if (Proxy.HasHttp) urls.Append($"http://[::1]:{HttpPort}");
-		if (Proxy.HasHttps)
-		{
-			if (urls.Length > 0) urls.Append(';');
-			urls.Append($"https://[::1]:{HttpsPort}");
-		}
 		foreach (var key in Application.Environment.Keys)
 		{
 			info.Environment[key] = Application.Environment[key];
