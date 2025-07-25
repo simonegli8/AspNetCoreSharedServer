@@ -25,7 +25,7 @@ public class Server
 
 			try
 			{
-				await client.ConnectAsync(new IPEndPoint(IPAddress.IPv6Loopback, port), cancel.Token);
+				await client.ConnectAsync(new IPEndPoint(Loopback, port), cancel.Token);
 			}
 			catch (Exception ex)
 			{
@@ -35,7 +35,7 @@ public class Server
 				await Task.Delay(10, cancel.Token);
 				try
 				{
-					await client.ConnectAsync(new IPEndPoint(IPAddress.IPv6Loopback, port), cancel.Token);
+					await client.ConnectAsync(new IPEndPoint(Loopback, port), cancel.Token);
 				}
 				catch (Exception ex)
 				{
@@ -61,7 +61,10 @@ public class Server
 	public DateTime LastWork => DateTime.FromBinary(Interlocked.Read(ref Ticks));
 	Proxy Proxy;
 	public Application Application => Proxy.Application;
-	Process? Kestrel;
+	public bool IsDotnet => Application.Assembly.EndsWith(".dll", StringComparison.OrdinalIgnoreCase);
+	public IPAddress Loopback => IsDotnet ? IPAddress.IPv6Loopback : IPAddress.Loopback;
+	public string LoopbackText => IsDotnet ? "[::1]" : "127.0.0.1";
+	Process ? Kestrel;
 	public CancellationTokenSource Cancel = new CancellationTokenSource();
 
 	public Server(Proxy server)
@@ -74,22 +77,24 @@ public class Server
 
 		if (Proxy.EnableHttp3)
 		{
-			if (HttpPort > -1) QuicHttpDest = new UdpClient(new IPEndPoint(IPAddress.IPv6Loopback, HttpPort));
-			if (HttpsPort > -1) QuicHttpsDest = new UdpClient(new IPEndPoint(IPAddress.IPv6Loopback, HttpsPort));
+			if (HttpPort > -1) QuicHttpDest = new UdpClient(new IPEndPoint(Loopback, HttpPort));
+			if (HttpsPort > -1) QuicHttpsDest = new UdpClient(new IPEndPoint(Loopback, HttpsPort));
 		}
 
 		var urls = new StringBuilder();
-		if (Proxy.HasHttp) urls.Append($"http://[::1]:{HttpPort}");
+		if (Proxy.HasHttp) urls.Append($"http://{LoopbackText}:{HttpPort}");
 		if (Proxy.HasHttps)
 		{
 			if (urls.Length > 0) urls.Append(';');
-			urls.Append($"https://[::1]:{HttpsPort}");
+			urls.Append($"https://{LoopbackText}:{HttpsPort}");
 		}
 		var info = new ProcessStartInfo();
 		info.WorkingDirectory = Path.GetDirectoryName(Application.Assembly);
 		var user = Application.User ?? Configuration.Current.User;
 		var group = Application.Group ?? Configuration.Current.Group;
-		bool dotnet = Proxy.Assembly.EndsWith(".dll", StringComparison.InvariantCultureIgnoreCase);
+		bool dotnet = IsDotnet;
+		var arguments = Application.Arguments?.Replace("${httpport}", HttpPort.ToString())
+			?.Replace("${httpsport}", HttpsPort.ToString());
 		if (!OSInfo.IsWindows && Mono.Unix.Native.Syscall.getuid() == 0 &&
 			!string.IsNullOrEmpty(user))
 		{
@@ -98,7 +103,7 @@ public class Server
 			// If running as root, use sudo to drop privileges
 			var env = $"ASPNETCORE_URLS={urls} ORIGINAL_URLS={Application.Urls ?? ""} ";
 			info.FileName = "sudo";
-			info.Arguments = $"-u {user} {groupArg}{env}-- {(dotnet ? "dotnet " : "")}\"{Proxy.Assembly}\"{(!string.IsNullOrEmpty(Proxy.Arguments) ? "" : " " + Proxy.Arguments)}";
+			info.Arguments = $"-u {user} {groupArg}{env}-- {(dotnet ? "dotnet " : "")}\"{Application.Assembly}\"{(string.IsNullOrEmpty(arguments) ? "" : " " + arguments)}";
 		}
 		else
 		{
@@ -106,11 +111,11 @@ public class Server
 			if (dotnet)
 			{
 				info.FileName = "dotnet";
-				info.Arguments = $"\"{Application.Assembly}\"{(!string.IsNullOrEmpty(Application.Arguments) ? "" : " " + Proxy.Arguments)}";
+				info.Arguments = $"\"{Application.Assembly}\"{(!string.IsNullOrEmpty(arguments) ? "" : " " + arguments)}";
 			} else
 			{  // Assembly is AOT
 				info.FileName = Application.Assembly;
-				info.Arguments = Proxy.Arguments ?? "";
+				info.Arguments = arguments ?? "";
 			}
 		}
 		info.CreateNoWindow = false;
@@ -120,7 +125,7 @@ public class Server
 		}
 		info.Environment["ORIGINAL_URLS"] = Application.Urls ?? "";
 		info.Environment["ASPNETCORE_URLS"] = urls.ToString();
-		Logger.LogInformation($"Starting Kestrel on {urls}");
+		Logger.LogInformation($"Starting {Application.Name} on {urls}");
 		info.RedirectStandardError = info.RedirectStandardOutput = false;
 		info.RedirectStandardInput = true;
 		info.UseShellExecute = false;
@@ -131,7 +136,7 @@ public class Server
 
 		Ticks = DateTime.Now.ToBinary();
 		
-		if (Kestrel.HasExited) Logger.LogError($"{Application.Name}: Failed to start Kestrel.");
+		if (Kestrel.HasExited) Logger.LogError($"{Application.Name}: Failed to start application.");
 
 		if (Proxy.Recycle != null || Proxy.IdleTimeout != null ||
 			Proxy.Recycle != TimeSpan.Zero || Proxy.IdleTimeout != TimeSpan.Zero)

@@ -51,7 +51,20 @@ public class Configuration
 			{
 				port = StartPort;
 				var usedPorts = new HashSet<int>(apps
-					.SelectMany(app => app.ListenUrls.Split(';').Select(url => new Uri(url).Port)));
+					.SelectMany(app => app.ListenUrls.Split(';')
+						.Where(url => !string.IsNullOrWhiteSpace(url))
+						.Select(url =>
+						{
+							int port = -1;
+							try
+							{
+								port = new Uri(url).Port;
+							}
+							catch { }
+							return port;
+						})
+						.Where(port => port != -1))
+					.Distinct());
 				do
 				{
 					try
