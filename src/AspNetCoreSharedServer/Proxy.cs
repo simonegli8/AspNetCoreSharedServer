@@ -19,17 +19,19 @@ public class Proxy
 	public Application Application = null;
 	public string ListenUrls = string.Empty;
 	public string OriginalUrls = string.Empty;
-	public bool HasHttp = false, HasHttps = false;
+	public bool HasHttp = false, HasHttps = false, HasNetTcp = false;
 	public Dictionary<string, string> Environment = new Dictionary<string, string>();
 	public TimeSpan? IdleTimeout = null;
 	public TimeSpan? Recycle = null;
 	public Server? Server = null;
 	public ILogger Logger => Configuration.Current.Logger;
 
-	public List<TcpListener> Http = new List<TcpListener>(), Https = new List<TcpListener>();
+	public List<TcpListener> Http = new List<TcpListener>(), Https = new List<TcpListener>(),
+		NetTcp = new List<TcpListener>();
 	public UdpClient? QuicHttp, QuicHttps;
-	Uri? httpUri = null, httpsUri = null;
-	int httpPort = -1, httpsPort = -1;
+	Uri? httpUri = null, httpsUri = null, nettcpUri = null;
+	int httpPort = -1, httpsPort = -1, nettcpPort = -1;
+
 	public Proxy(Application app)
 	{
 		app.Proxy = this;
@@ -58,6 +60,11 @@ public class Proxy
 				HasHttps = true;
 				httpsUri = uri;
 			}
+			else if (uri.Scheme == "net.tcp")
+			{
+				HasNetTcp = true;
+				nettcpUri = uri;
+			}
 			else throw new ArgumentException("Invalid URL scheme. Only 'http' and 'https' are supported.", nameof(url));
 		}
 		if (HasHttp)
@@ -73,18 +80,32 @@ public class Proxy
 				actualurls.Add(httpUri.ToString());
 			}
 		}
-		
+
 		if (HasHttps)
 		{
 			if (httpsUri.Port == 443)
 			{
 				httpsPort = Configuration.FindFreePort();
-				actualurls.Add($"http://{httpsUri.Host}:{httpsPort}");
+				actualurls.Add($"https://{httpsUri.Host}:{httpsPort}");
 			}
 			else
 			{
 				httpsPort = httpsUri.Port;
 				actualurls.Add(httpsUri.ToString());
+			}
+		}
+
+		if (HasNetTcp)
+		{
+			if (nettcpUri.Port == 808)
+			{
+				nettcpPort = Configuration.FindFreePort();
+				actualurls.Add($"nettcp://{nettcpUri.Host}:{nettcpPort}");
+			}
+			else
+			{
+				nettcpPort = nettcpUri.Port;
+				actualurls.Add(nettcpUri.ToString());
 			}
 		}
 
@@ -143,6 +164,26 @@ public class Proxy
 				foreach (var ipadr in ips) Https.Add(new TcpListener(ipadr, httpsPort));
 
 				t2 = ListenAsync(Https, server => server.HttpsDest());
+			}
+			if (HasNetTcp)
+			{
+				IPAddress? ip;
+				List<IPAddress> ips = new List<IPAddress>();
+				if (nettcpUri.Host == "0.0.0.0") ips.Add(IPAddress.Any);
+				else if (nettcpUri.Host == "[::]") ips.Add(IPAddress.IPv6Any);
+				else if (nettcpUri.Host == "127.0.0.1") ips.Add(IPAddress.Loopback);
+				else if (nettcpUri.Host == "[::1]") ips.Add(IPAddress.IPv6Loopback);
+				else if (IPAddress.TryParse(nettcpUri.Host, out ip)) ips.Add(ip);
+				else
+				{
+					ips.AddRange((await Dns.GetHostAddressesAsync(nettcpUri.Host))
+						.Distinct());
+				}
+				if (!ips.Any()) ips = new List<IPAddress>() { IPAddress.Any, IPAddress.IPv6Any };
+				NetTcp.Clear();
+				foreach (var ipadr in ips) NetTcp.Add(new TcpListener(ipadr, nettcpPort));
+
+				t1 = ListenAsync(NetTcp, server => server.NetTcpDest());
 			}
 			if (QuicHttp != null) t3 = ListenAsync(QuicHttp, server => server.QuicHttpDest);
 			if (QuicHttps != null) t4 = ListenAsync(QuicHttps, server => server.QuicHttpsDest);

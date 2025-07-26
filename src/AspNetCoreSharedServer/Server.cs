@@ -52,7 +52,11 @@ public class Server
 	{
 		return await Connect(HttpsPort);
 	}
-	public int HttpPort = -1, HttpsPort = -1;
+	public async Task<TcpClient> NetTcpDest()
+	{
+		return await Connect(NetTcpPort);
+	}
+	public int HttpPort = -1, HttpsPort = -1, NetTcpPort = -1;
 	public UdpClient QuicHttpDest, QuicHttpsDest;
 	public DateTime Started = DateTime.Now;
 	public long Ticks = DateTime.Now.ToBinary();
@@ -64,7 +68,7 @@ public class Server
 	public bool IsDotnet => Application.Assembly.EndsWith(".dll", StringComparison.OrdinalIgnoreCase);
 	public IPAddress Loopback => IsDotnet ? IPAddress.IPv6Loopback : IPAddress.Loopback;
 	public string LoopbackText => IsDotnet ? "[::1]" : "127.0.0.1";
-	Process ? Kestrel;
+	Process ? ServerProcess;
 	public CancellationTokenSource Cancel = new CancellationTokenSource();
 
 	public Server(Proxy server)
@@ -74,6 +78,7 @@ public class Server
 
 		if (Proxy.HasHttp) HttpPort = Configuration.FindFreePort(true);
 		if (Proxy.HasHttps) HttpsPort = Configuration.FindFreePort(true);
+		if (Proxy.HasNetTcp) NetTcpPort = Configuration.FindFreePort(true);
 
 		if (Proxy.EnableHttp3)
 		{
@@ -88,13 +93,21 @@ public class Server
 			if (urls.Length > 0) urls.Append(';');
 			urls.Append($"https://{LoopbackText}:{HttpsPort}");
 		}
+		if (Proxy.HasNetTcp)
+		{
+			if (urls.Length > 0) urls.Append(';');
+			urls.Append($"net.tcp://{LoopbackText}:{NetTcpPort}");
+		}
 		var info = new ProcessStartInfo();
 		info.WorkingDirectory = Path.GetDirectoryName(Application.Assembly);
 		var user = Application.User ?? Configuration.Current.User;
 		var group = Application.Group ?? Configuration.Current.Group;
 		bool dotnet = IsDotnet;
-		var arguments = Application.Arguments?.Replace("${httpport}", HttpPort.ToString())
-			?.Replace("${httpsport}", HttpsPort.ToString());
+		var arguments = Application.Arguments
+			?.Replace("${httpport}", HttpPort.ToString())
+			?.Replace("${httpsport}", HttpsPort.ToString())
+			?.Replace("${nettcpport}", NetTcpPort.ToString())
+			?.Replace("${loopback}", LoopbackText);
 		if (!OSInfo.IsWindows && Mono.Unix.Native.Syscall.getuid() == 0 &&
 			!string.IsNullOrEmpty(user))
 		{
@@ -132,11 +145,11 @@ public class Server
 		info.WindowStyle = ProcessWindowStyle.Normal;
 		Logger.LogInformation($"{(!string.IsNullOrEmpty(user) ? user : "")}>{info.FileName} {info.Arguments}");
 
-		Kestrel = Process.Start(info);
+		ServerProcess = Process.Start(info);
 
 		Ticks = DateTime.Now.ToBinary();
 		
-		if (Kestrel.HasExited) Logger.LogError($"{Application.Name}: Failed to start application.");
+		if (ServerProcess.HasExited) Logger.LogError($"{Application.Name}: Failed to start application.");
 
 		if (Proxy.Recycle != null || Proxy.IdleTimeout != null ||
 			Proxy.Recycle != TimeSpan.Zero || Proxy.IdleTimeout != TimeSpan.Zero)
@@ -147,12 +160,12 @@ public class Server
 	{
 		Logger.LogInformation($"Shutting down {Application.Name}.");
 
-		if (Kestrel != null)
+		if (ServerProcess != null)
 		{
 			shuttingDown = true;
 
-			if (!Kestrel.HasExited) SignalSender.SendSigint(Kestrel); // Send SIGINT to gracefully stop Kestrel
-			Kestrel = null;
+			if (!ServerProcess.HasExited) SignalSender.SendSigint(ServerProcess); // Send SIGINT to gracefully stop Kestrel
+			ServerProcess = null;
 
 			lock (Proxy) Proxy.Server = null; // Clear the server reference to prevent further processing
 			Task.Run(async () =>
@@ -182,7 +195,7 @@ public class Server
 					Proxy.StartServer();
 				}
 				return;
-			} else if (Kestrel != null && Kestrel.HasExited && !shuttingDown) // If Kestrel has stopped, restart it
+			} else if (ServerProcess != null && ServerProcess.HasExited && !shuttingDown) // If Kestrel has stopped, restart it
 			{
 				KestrelRestarts++;
 				if (KestrelRestarts > MaxKestrelRestarts)
