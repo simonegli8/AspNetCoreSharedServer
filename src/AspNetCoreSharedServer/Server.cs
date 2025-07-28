@@ -112,7 +112,7 @@ public class Server
 			!string.IsNullOrEmpty(user))
 		{
 			string groupArg = "";
-			if (!string.IsNullOrEmpty(group)) groupArg = $"-g  {group} ";
+			if (!string.IsNullOrEmpty(group)) groupArg = $"-g {group} ";
 			// If running as root, use sudo to drop privileges
 			var env = $"ASPNETCORE_URLS={urls} ORIGINAL_URLS={Application.Urls ?? ""} ";
 			info.FileName = "sudo";
