@@ -99,9 +99,13 @@ public class Server
 			urls.Append($"net.tcp://{LoopbackText}:{NetTcpPort}");
 		}
 		var info = new ProcessStartInfo();
-		info.WorkingDirectory = Path.GetDirectoryName(Application.Assembly);
 		var user = Application.User ?? Configuration.Current.User;
 		var group = Application.Group ?? Configuration.Current.Group;
+		info.WorkingDirectory = Application.Assembly.Contains(Path.DirectorySeparatorChar) ?
+			Path.GetDirectoryName(Application.Assembly) :
+				(OSInfo.IsWindows ? Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments) :
+					(OSInfo.IsMac ? $"/Users/{user}" :
+						(user == "root" ? "/root" : $"/home/{user}")));
 		bool dotnet = IsDotnet;
 		var arguments = Application.Arguments
 			?.Replace("${httpport}", HttpPort.ToString())

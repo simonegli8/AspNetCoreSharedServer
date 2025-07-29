@@ -24,8 +24,8 @@
         <RepositoryUrl>https://github.com/simonegli8/AspNetCoreSharedServer</RepositoryUrl>
         <RepositoryType>git</RepositoryType>
         <PackageTags>ASP.NET Core;shared hosting;running Kestrel on demand</PackageTags>
-        <AssemblyVersion>1.1.8.0</AssemblyVersion>
-        <FileVersion>1.1.8.0</FileVersion>
+        <AssemblyVersion>1.1.9.0</AssemblyVersion>
+        <FileVersion>1.1.9.0</FileVersion>
         <PackageLicenseExpression>MIT</PackageLicenseExpression>
         <IncludeSymbols>false</IncludeSymbols>
         <PublishRepositoryUrl>true</PublishRepositoryUrl>
