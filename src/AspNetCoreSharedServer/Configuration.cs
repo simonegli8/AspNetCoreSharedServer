@@ -534,8 +534,8 @@ public class Application
 				{
 					stream.Read(bytes, 0, 4);
 					// Check for ELF magic number
-					if (bytes[0] == 0x7F && bytes[1] == 0x45 && bytes[2] == 0x4C && bytes[3] == 0x46 ||
-						bytes[0] == 0x23 && bytes[1] == 0x21) // #! shebang
+					if (bytes[0] == 0x7F && bytes[1] == 0x45 && bytes[2] == 0x4C && bytes[3] == 0x46)
+						//|| bytes[0] == 0x23 && bytes[1] == 0x21) // #! shebang
 					{
 						yield return file;
 					}
