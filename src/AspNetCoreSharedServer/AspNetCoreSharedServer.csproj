@@ -24,8 +24,8 @@
         <RepositoryUrl>https://github.com/simonegli8/AspNetCoreSharedServer</RepositoryUrl>
         <RepositoryType>git</RepositoryType>
         <PackageTags>ASP.NET Core;shared hosting;running Kestrel on demand</PackageTags>
-        <AssemblyVersion>1.1.11.0</AssemblyVersion>
-        <FileVersion>1.1.11.0</FileVersion>
+        <AssemblyVersion>1.1.13.0</AssemblyVersion>
+        <FileVersion>1.1.13.0</FileVersion>
         <PackageLicenseExpression>MIT</PackageLicenseExpression>
         <IncludeSymbols>false</IncludeSymbols>
         <PublishRepositoryUrl>true</PublishRepositoryUrl>
@@ -51,7 +51,8 @@
         <PackageReference Include="MedallionShell" Version="1.6.2" />
         <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.1" />
         <PackageReference Include="Mono.Cecil" Version="0.11.6" />
-        <PackageReference Include="Mono.Posix.NETStandard" Version="1.0.0" />
-        <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+        <PackageReference Include="Mono.Posix" Version="7.1.0-final.1.21458.1" />
+		<PackageReference Include="Mono.Unix" Version="7.1.0-final.1.21458.1" />
+		<PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
     </ItemGroup>
 </Project>
