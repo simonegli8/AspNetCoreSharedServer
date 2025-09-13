@@ -4,7 +4,7 @@ ASP.NET Core in a shared hosting environment behind a proxy like Apache or Nginx
 run as a permanent Systemd service using resources, but should be started on demand and shutdown when idle. 
 
 # Usage
-First install AspNetCoreSharedServer using the comman `sudo dotnet tool install AspNetCoreSharedServer --global`.
+First install AspNetCoreSharedServer using the command `sudo dotnet tool install AspNetCoreSharedServer --global`.
 
 ## Run AspNetCoreSharedServer as a Systemd service.
 Next, use a aspnetcore-shared-server.service file like the following to run AspNetCoreSharedServer as a Systemd service:
