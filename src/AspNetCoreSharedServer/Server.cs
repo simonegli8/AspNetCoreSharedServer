@@ -115,6 +115,8 @@ public class Server
 			?.Replace("${httpsport}", HttpsPort.ToString())
 			?.Replace("${nettcpport}", NetTcpPort.ToString())
 			?.Replace("${loopback}", LoopbackText);
+		uint? uid = null, gid = null;
+
 		if (!OSInfo.IsWindows && Mono.Unix.Native.Syscall.getuid() == 0 &&
 			!string.IsNullOrEmpty(user))
 		{
@@ -136,11 +138,18 @@ public class Server
 					{
 						Logger.LogError($"User {user} not found.");
 						return;
+					} else
+					{
+						uid = userrec.pw_uid;
+						gid = userrec.pw_gid;
 					}
 					if (!string.IsNullOrEmpty(group) && grouprec == null)
 					{
 						Logger.LogError($"Group {group} not found.");
 						return;
+					} else if (grouprec != null)
+					{
+						gid = grouprec.gr_gid;
 					}
 
 					if (dotnet)
@@ -152,36 +161,6 @@ public class Server
 					{  // Assembly is AOT
 						info.FileName = Application.Assembly;
 						info.Arguments = arguments ?? "";
-					}
-
-					info.CreateNoWindow = false;
-					foreach (var key in Application.Environment.Keys)
-					{
-						info.Environment[key] = Application.Environment[key];
-					}
-					info.Environment["ORIGINAL_URLS"] = Application.Urls ?? "";
-					info.Environment["ASPNETCORE_URLS"] = urls.ToString();
-					Logger.LogInformation($"Starting {Application.Name} on {urls}");
-					info.RedirectStandardError = info.RedirectStandardOutput = false;
-					info.RedirectStandardInput = true;
-					info.UseShellExecute = false;
-					info.WindowStyle = ProcessWindowStyle.Normal;
-					Logger.LogInformation($"{(!string.IsNullOrEmpty(user) ? user : "")}>{info.FileName} {info.Arguments}");
-
-					// Switch group first, then user
-					if (Syscall.setegid(grouprec.gr_gid) != 0 || Syscall.seteuid(userrec.pw_uid) != 0)
-					{
-						Logger.LogError("Failed to switch user/group (need to run as root).");
-						return;
-					}
-
-					ServerProcess = Process.Start(info);
-					
-					// Revert to root
-					if (Syscall.setegid(0) != 0 || Syscall.seteuid(0) != 0)
-					{
-						Logger.LogError("Failed to switch back to root.");
-						return;
 					}
 				}
 			}
@@ -200,6 +179,7 @@ public class Server
 				info.Arguments = arguments ?? "";
 			}
 		}
+
 		info.CreateNoWindow = false;
 		foreach (var key in Application.Environment.Keys)
 		{
@@ -214,7 +194,21 @@ public class Server
 		info.WindowStyle = ProcessWindowStyle.Normal;
 		Logger.LogInformation($"{(!string.IsNullOrEmpty(user) ? user : "")}>{info.FileName} {info.Arguments}");
 
+		// Switch group first, then user
+		if (gid != null && Syscall.setegid(gid.Value) != 0 || uid != null && Syscall.seteuid(uid.Value) != 0)
+		{
+			Logger.LogError("Failed to switch user/group (need to run as root).");
+			return;
+		}
+
 		ServerProcess = Process.Start(info);
+
+		// Revert to root
+		if ((gid != null || uid != null) && (Syscall.setegid(0) != 0 || Syscall.seteuid(0) != 0))
+		{
+			Logger.LogError("Failed to switch back to root.");
+			return;
+		}
 
 		Ticks = DateTime.Now.ToBinary();
 		
