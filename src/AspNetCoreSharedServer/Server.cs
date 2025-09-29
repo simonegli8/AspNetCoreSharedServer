@@ -8,6 +8,8 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Diagnostics;
 using System.Buffers;
+using Mono.Unix;
+using Mono.Unix.Native;
 
 namespace AspNetCoreSharedServer;
 
@@ -71,6 +73,7 @@ public class Server
 	Process ? ServerProcess;
 	public CancellationTokenSource Cancel = new CancellationTokenSource();
 
+	static object UidLock = new();
 	public Server(Proxy server)
 	{
 		Proxy = server;
@@ -115,12 +118,72 @@ public class Server
 		if (!OSInfo.IsWindows && Mono.Unix.Native.Syscall.getuid() == 0 &&
 			!string.IsNullOrEmpty(user))
 		{
-			string groupArg = "";
-			if (!string.IsNullOrEmpty(group)) groupArg = $"-g {group} ";
-			// If running as root, use sudo to drop privileges
-			var env = $"ASPNETCORE_URLS={urls} ORIGINAL_URLS={Application.Urls ?? ""} ";
-			info.FileName = "sudo";
-			info.Arguments = $"-u {user} {groupArg}{env}-- {(dotnet ? "dotnet " : "")}\"{Application.Assembly}\"{(string.IsNullOrEmpty(arguments) ? "" : " " + arguments)}";
+			if (!OSInfo.IsMac)
+			{
+				string groupArg = "";
+				if (!string.IsNullOrEmpty(group)) groupArg = $"-g {group} ";
+				// If running as root, use sudo to drop privileges
+				var env = $"ASPNETCORE_URLS={urls} ORIGINAL_URLS={Application.Urls ?? ""} ";
+				info.FileName = "sudo";
+				info.Arguments = $"-u {user} {groupArg}{env}-- {(dotnet ? "dotnet " : "")}\"{Application.Assembly}\"{(string.IsNullOrEmpty(arguments) ? "" : " " + arguments)}";
+			} else
+			{
+				lock (UidLock)
+				{
+					var userrec = Syscall.getpwnam(user);
+					var grouprec = !string.IsNullOrEmpty(group) ? Syscall.getgrnam(group)  :null;
+					if (userrec == null)
+					{
+						Logger.LogError($"User {user} not found.");
+						return;
+					}
+					if (!string.IsNullOrEmpty(group) && grouprec == null)
+					{
+						Logger.LogError($"Group {group} not found.");
+						return;
+					}
+
+					if (dotnet)
+					{
+						info.FileName = "dotnet";
+						info.Arguments = $"\"{Application.Assembly}\"{(!string.IsNullOrEmpty(arguments) ? "" : " " + arguments)}";
+					}
+					else
+					{  // Assembly is AOT
+						info.FileName = Application.Assembly;
+						info.Arguments = arguments ?? "";
+					}
+
+					info.CreateNoWindow = false;
+					foreach (var key in Application.Environment.Keys)
+					{
+						info.Environment[key] = Application.Environment[key];
+					}
+					info.Environment["ORIGINAL_URLS"] = Application.Urls ?? "";
+					info.Environment["ASPNETCORE_URLS"] = urls.ToString();
+					Logger.LogInformation($"Starting {Application.Name} on {urls}");
+					info.RedirectStandardError = info.RedirectStandardOutput = false;
+					info.RedirectStandardInput = true;
+					info.UseShellExecute = false;
+					info.WindowStyle = ProcessWindowStyle.Normal;
+					Logger.LogInformation($"{(!string.IsNullOrEmpty(user) ? user : "")}>{info.FileName} {info.Arguments}");
+
+					// Switch group first, then user
+					if (Syscall.setegid(grouprec.gr_gid) != 0 || Syscall.seteuid(userrec.pw_uid) != 0)
+					{
+						Logger.LogError("Failed to switch user/group (need to run as root).");
+						return;
+					}
+
+					ServerProcess = Process.Start(info);
+					
+					if (Syscall.setegid(0) != 0 || Syscall.seteuid(0) != 0)
+					{
+						Logger.LogError("Failed to switch back to root.");
+						return;
+					}
+				}
+			}
 		}
 		else
 		{
@@ -129,7 +192,8 @@ public class Server
 			{
 				info.FileName = "dotnet";
 				info.Arguments = $"\"{Application.Assembly}\"{(!string.IsNullOrEmpty(arguments) ? "" : " " + arguments)}";
-			} else
+			}
+			else
 			{  // Assembly is AOT
 				info.FileName = Application.Assembly;
 				info.Arguments = arguments ?? "";
