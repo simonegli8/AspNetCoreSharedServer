@@ -177,6 +177,7 @@ public class Server
 
 					ServerProcess = Process.Start(info);
 					
+					// Revert to root
 					if (Syscall.setegid(0) != 0 || Syscall.seteuid(0) != 0)
 					{
 						Logger.LogError("Failed to switch back to root.");
