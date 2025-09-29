@@ -1,15 +1,16 @@
 ﻿
+using Mono.Unix;
+using Mono.Unix.Native;
 using System;
+using System.Buffers;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Threading.Tasks;
-using System.Diagnostics;
-using System.Buffers;
-using Mono.Unix;
-using Mono.Unix.Native;
 
 namespace AspNetCoreSharedServer;
 
@@ -74,6 +75,52 @@ public class Server
 	public CancellationTokenSource Cancel = new CancellationTokenSource();
 
 	static object UidLock = new();
+	public static IEnumerable<string> Paths
+	{
+		get
+		{
+			string proc, machine = "", user = "";
+			string[] sources;
+			proc = Environment.GetEnvironmentVariable("PATH");
+			if (OSInfo.IsWindows)
+			{
+				machine = Environment.GetEnvironmentVariable("PATH", EnvironmentVariableTarget.Machine);
+				user = Environment.GetEnvironmentVariable("PATH", EnvironmentVariableTarget.User);
+				sources = new string[] {
+						Environment.GetFolderPath(Environment.SpecialFolder.System),
+						Environment.GetFolderPath(Environment.SpecialFolder.SystemX86),
+						proc, machine, user };
+			}
+			else sources = new string[] { proc };
+
+			return sources
+				.SelectMany(paths => paths.Split(new char[] { Path.PathSeparator }, StringSplitOptions.RemoveEmptyEntries))
+				.Select(path => path.Trim())
+				.Distinct();
+		}
+	}
+
+	public virtual string Find(string cmd)
+	{
+		string file = null;
+		cmd = cmd.Trim('"');
+		if (cmd.IndexOf(Path.DirectorySeparatorChar) >= 0)
+		{
+			if (File.Exists(cmd)) file = cmd;
+		}
+		else
+		{
+			file = Paths
+				  .SelectMany(p =>
+				  {
+					  var p1 = Path.Combine(p, cmd);
+					  return new string[] { p1, Path.ChangeExtension(p1, "exe") };
+				  })
+				  .FirstOrDefault(p => File.Exists(p));
+		}
+		return file;
+	}
+
 	public Server(Proxy server)
 	{
 		Proxy = server;
@@ -127,7 +174,8 @@ public class Server
 				// If running as root, use sudo to drop privileges
 				var env = $"ASPNETCORE_URLS={urls} ORIGINAL_URLS={Application.Urls ?? ""} ";
 				info.FileName = "sudo";
-				info.Arguments = $"-u {user} {groupArg}{env}-- {(dotnet ? "dotnet " : "")}\"{Application.Assembly}\"{(string.IsNullOrEmpty(arguments) ? "" : " " + arguments)}";
+				var dotnetwithpath = Find("dotnet");
+				info.Arguments = $"-u {user} {groupArg}{env}-- {(dotnet ? $"\"{dotnetwithpath}\" " : "")}\"{Application.Assembly}\"{(string.IsNullOrEmpty(arguments) ? "" : " " + arguments)}";
 			} else
 			{
 				lock (UidLock)
@@ -154,7 +202,7 @@ public class Server
 
 					if (dotnet)
 					{
-						info.FileName = "dotnet";
+						info.FileName = Find("dotnet");
 						info.Arguments = $"\"{Application.Assembly}\"{(!string.IsNullOrEmpty(arguments) ? "" : " " + arguments)}";
 					}
 					else
@@ -170,7 +218,7 @@ public class Server
 			// Otherwise, run dotnet directly
 			if (dotnet)
 			{
-				info.FileName = "dotnet";
+				info.FileName = Find("dotnet");
 				info.Arguments = $"\"{Application.Assembly}\"{(!string.IsNullOrEmpty(arguments) ? "" : " " + arguments)}";
 			}
 			else
