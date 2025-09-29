@@ -151,6 +151,13 @@ public class Server
 		var info = new ProcessStartInfo();
 		var user = Application.User ?? Configuration.Current.User;
 		var group = Application.Group ?? Configuration.Current.Group;
+		
+		if (!File.Exists(Application.Assembly))
+		{
+			Logger.LogError($"Assembly {Application.Assembly} not found.");
+			return;
+		}
+
 		info.WorkingDirectory = Application.Assembly.Contains(Path.DirectorySeparatorChar) ?
 			Path.GetDirectoryName(Application.Assembly) :
 				(OSInfo.IsWindows ? Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments) :
@@ -178,38 +185,35 @@ public class Server
 				info.Arguments = $"-u {user} {groupArg}{env}-- {(dotnet ? $"\"{dotnetwithpath}\" " : "")}\"{Application.Assembly}\"{(string.IsNullOrEmpty(arguments) ? "" : " " + arguments)}";
 			} else
 			{
-				lock (UidLock)
+				var userrec = Syscall.getpwnam(user);
+				var grouprec = !string.IsNullOrEmpty(group) ? Syscall.getgrnam(group)  :null;
+				if (userrec == null)
 				{
-					var userrec = Syscall.getpwnam(user);
-					var grouprec = !string.IsNullOrEmpty(group) ? Syscall.getgrnam(group)  :null;
-					if (userrec == null)
-					{
-						Logger.LogError($"User {user} not found.");
-						return;
-					} else
-					{
-						uid = userrec.pw_uid;
-						gid = userrec.pw_gid;
-					}
-					if (!string.IsNullOrEmpty(group) && grouprec == null)
-					{
-						Logger.LogError($"Group {group} not found.");
-						return;
-					} else if (grouprec != null)
-					{
-						gid = grouprec.gr_gid;
-					}
+					Logger.LogError($"User {user} not found.");
+					return;
+				} else
+				{
+					uid = userrec.pw_uid;
+					gid = userrec.pw_gid;
+				}
+				if (!string.IsNullOrEmpty(group) && grouprec == null)
+				{
+					Logger.LogError($"Group {group} not found.");
+					return;
+				} else if (grouprec != null)
+				{
+					gid = grouprec.gr_gid;
+				}
 
-					if (dotnet)
-					{
-						info.FileName = Find("dotnet");
-						info.Arguments = $"\"{Application.Assembly}\"{(!string.IsNullOrEmpty(arguments) ? "" : " " + arguments)}";
-					}
-					else
-					{  // Assembly is AOT
-						info.FileName = Application.Assembly;
-						info.Arguments = arguments ?? "";
-					}
+				if (dotnet)
+				{
+					info.FileName = Find("dotnet");
+					info.Arguments = $"\"{Application.Assembly}\"{(!string.IsNullOrEmpty(arguments) ? "" : " " + arguments)}";
+				}
+				else
+				{  // Assembly is AOT
+					info.FileName = Application.Assembly;
+					info.Arguments = arguments ?? "";
 				}
 			}
 		}
@@ -242,20 +246,27 @@ public class Server
 		info.WindowStyle = ProcessWindowStyle.Normal;
 		Logger.LogInformation($"{(!string.IsNullOrEmpty(user) ? user : "")}>{info.FileName} {info.Arguments}");
 
-		// Switch group first, then user
-		if (gid != null && Syscall.setegid(gid.Value) != 0 || uid != null && Syscall.seteuid(uid.Value) != 0)
+		if (gid != null || uid != null)
 		{
-			Logger.LogError("Failed to switch user/group (need to run as root).");
-			return;
+			// Switch group first, then user
+			if (gid != null && Syscall.setegid(gid.Value) != 0 || uid != null && Syscall.seteuid(uid.Value) != 0)
+			{
+				Logger.LogError("Failed to switch user/group (need to run as root).");
+				return;
+			}
+
+			ServerProcess = Process.Start(info);
+
+			// Revert to root
+			if ((gid != null || uid != null) && (Syscall.setegid(0) != 0 || Syscall.seteuid(0) != 0))
+			{
+				Logger.LogError("Failed to switch back to root.");
+				return;
+			}
 		}
-
-		ServerProcess = Process.Start(info);
-
-		// Revert to root
-		if ((gid != null || uid != null) && (Syscall.setegid(0) != 0 || Syscall.seteuid(0) != 0))
+		else
 		{
-			Logger.LogError("Failed to switch back to root.");
-			return;
+			ServerProcess = Process.Start(info);
 		}
 
 		Ticks = DateTime.Now.ToBinary();
