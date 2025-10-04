@@ -87,11 +87,12 @@ public class Server
 				machine = Environment.GetEnvironmentVariable("PATH", EnvironmentVariableTarget.Machine);
 				user = Environment.GetEnvironmentVariable("PATH", EnvironmentVariableTarget.User);
 				sources = new string[] {
-						Environment.GetFolderPath(Environment.SpecialFolder.System),
-						Environment.GetFolderPath(Environment.SpecialFolder.SystemX86),
-						proc, machine, user };
+					Environment.GetFolderPath(Environment.SpecialFolder.System),
+					Environment.GetFolderPath(Environment.SpecialFolder.SystemX86),
+					proc, machine, user };
 			}
-			else sources = new string[] { proc };
+			else if (!OSInfo.IsMac) sources = new string[] { proc };
+			else sources = new string[] { proc, "/usr/local/share/dotnet" };
 
 			return sources
 				.SelectMany(paths => paths.Split(new char[] { Path.PathSeparator }, StringSplitOptions.RemoveEmptyEntries))
@@ -181,7 +182,7 @@ public class Server
 				// If running as root, use sudo to drop privileges
 				var env = $"ASPNETCORE_URLS={urls} ORIGINAL_URLS={Application.Urls ?? ""} ";
 				info.FileName = "sudo";
-				var dotnetwithpath = Find("dotnet");
+				var dotnetwithpath = Find("dotnet") ?? "dotnet";
 				info.Arguments = $"-u {user} {groupArg}{env}-- {(dotnet ? $"\"{dotnetwithpath}\" " : "")}\"{Application.Assembly}\"{(string.IsNullOrEmpty(arguments) ? "" : " " + arguments)}";
 			} else
 			{
@@ -207,7 +208,7 @@ public class Server
 
 				if (dotnet)
 				{
-					info.FileName = Find("dotnet");
+					info.FileName = Find("dotnet") ?? "dotnet";
 					info.Arguments = $"\"{Application.Assembly}\"{(!string.IsNullOrEmpty(arguments) ? "" : " " + arguments)}";
 				}
 				else
@@ -222,7 +223,7 @@ public class Server
 			// Otherwise, run dotnet directly
 			if (dotnet)
 			{
-				info.FileName = Find("dotnet");
+				info.FileName = Find("dotnet") ?? "dotnet";
 				info.Arguments = $"\"{Application.Assembly}\"{(!string.IsNullOrEmpty(arguments) ? "" : " " + arguments)}";
 			}
 			else
