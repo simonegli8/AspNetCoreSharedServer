@@ -13,7 +13,7 @@
       "ListenUrls": "http://google.com:9063/",
       "Urls": "http://localhost:9063",
       "Environment": {},
-      "Assembly": "C:\\GitHub\\AspNetCoreSharedServer\\src\\AspNetCoreTestApp\\bin\\Debug\\net8.0\\AspNetCoreTestApp.dll",
+      "Assembly": "C:\\GitHub\\AspNetCoreSharedServer\\src\\AspNetCoreTestApp\\bin\\Debug\\net10.0\\AspNetCoreTestApp.dll",
       "IdleTimeout": "00:05:00",
       "Recycle": "00:20:00"
     }
