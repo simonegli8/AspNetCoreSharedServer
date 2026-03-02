@@ -8,8 +8,9 @@
         <RootNamespace>AspNetCoreSharedServer</RootNamespace>
         <AssemblyName>AspNetCoreSharedServer</AssemblyName>
         <DefineConstants>$(DefineConstants);Server</DefineConstants>
+		<DebugType>embedded</DebugType>
 
-        <IsPackable>true</IsPackable>
+		<IsPackable>true</IsPackable>
         <PackageId>AspNetCoreSharedServer.Library</PackageId>
         <PackageReadmeFile>README.md</PackageReadmeFile>
         <Title>AspNetCoreSharedServer.Library</Title>
@@ -26,8 +27,8 @@
         <RepositoryUrl>https://github.com/simonegli8/AspNetCoreSharedServer</RepositoryUrl>
         <RepositoryType>git</RepositoryType>
         <PackageTags>ASP.NET Core;shared hosting;running Kestrel on demand</PackageTags>
-        <AssemblyVersion>1.3.0.0</AssemblyVersion>
-        <FileVersion>1.3.0.0</FileVersion>
+		<AssemblyVersion>1.3.1.0</AssemblyVersion>
+        <FileVersion>1.3.1.0</FileVersion>
         <PackageLicenseExpression>MIT</PackageLicenseExpression>
         <IncludeSymbols>false</IncludeSymbols>
         <PublishRepositoryUrl>true</PublishRepositoryUrl>

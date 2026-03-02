@@ -4,9 +4,10 @@
         <TargetFramework>netstandard2.0</TargetFramework>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
-        <LangVersion>13</LangVersion>
+        <LangVersion>14</LangVersion>
+		<DebugType>embedded</DebugType>
 
-        <IsPackable>true</IsPackable>
+		<IsPackable>true</IsPackable>
         <PackageId>AspNetCoreSharedServer.Api</PackageId>
         <PackageReadmeFile>README.md</PackageReadmeFile>
         <Title>AspNetCoreSharedServer.Api</Title>
@@ -22,8 +23,8 @@
         <RepositoryUrl>https://github.com/simonegli8/AspNetCoreSharedServer</RepositoryUrl>
         <RepositoryType>git</RepositoryType>
         <PackageTags>ASP.NET Core;shared hosting;running Kestrel on demand</PackageTags>
-        <AssemblyVersion>1.3.0.0</AssemblyVersion>
-        <FileVersion>1.3.0.0</FileVersion>
+		<AssemblyVersion>1.3.1.0</AssemblyVersion>
+        <FileVersion>1.3.1.0</FileVersion>
         <PackageLicenseExpression>MIT</PackageLicenseExpression>
         <IncludeSymbols>false</IncludeSymbols>
         <PublishRepositoryUrl>true</PublishRepositoryUrl>
