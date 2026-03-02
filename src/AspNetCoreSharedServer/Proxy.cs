@@ -4,6 +4,7 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Diagnostics;
 using System.Buffers;
+using NeoSmart.AsyncLock;
 
 namespace AspNetCoreSharedServer;
 
@@ -13,6 +14,7 @@ public class Proxy
 	public const int RequestQueueSize = 64;
 
 	public CancellationTokenSource Cancel = new CancellationTokenSource();
+	public AsyncLock Lock = new AsyncLock();
 
 	public string Assembly;
 	public string Arguments;

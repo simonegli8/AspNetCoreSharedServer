@@ -8,6 +8,8 @@ using Mono.Cecil;
 using Mono.Unix.Native;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Converters;
+using Mono.Unix;
+using NeoSmart.AsyncLock;
 
 namespace AspNetCoreSharedServer;
 
@@ -24,14 +26,35 @@ public class Configuration
 		public static readonly TimeSpan Timeout = TimeSpan.FromSeconds(10); 
 		public const string MutexPath = "Global\\aspnetcore.lock";
 
-		private static Mutex mutex = new Mutex(false, MutexPath);
+		static Mutex mutex = null;
+		static AsyncLock Lock = new AsyncLock();
+		static Mutex Mutex
+		{
+			get
+			{
+				if (mutex != null) return mutex;
+
+				const string MutexPath = "/tmp/.dotnet/shm/global";
+				if ((OSInfo.IsLinux || OSInfo.IsMac) && !Directory.Exists(MutexPath))
+				{
+					Directory.CreateDirectory(MutexPath);
+					Unix.GrantUnixPermissions("/tmp/.dotnet",
+						FileAccessPermissions.GroupExecute | FileAccessPermissions.GroupRead | FileAccessPermissions.GroupWrite |
+						FileAccessPermissions.OtherExecute | FileAccessPermissions.OtherRead | FileAccessPermissions.OtherWrite |
+						FileAccessPermissions.UserExecute | FileAccessPermissions.UserRead | FileAccessPermissions.UserWrite,
+						true);
+				}
+
+				return mutex = new Mutex(false, MutexPath);
+			}
+		}
 		public NamedMutex()
 		{
-			mutex.WaitOne(Timeout);
+			using (Lock.Lock()) Mutex.WaitOne(Timeout);
 		}
 		public void Dispose()
 		{
-			mutex.ReleaseMutex();
+			using (Lock.Lock()) Mutex.ReleaseMutex();
 		}
 	}
 	static int StartPort = 10000; 

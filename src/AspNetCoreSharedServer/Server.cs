@@ -290,7 +290,8 @@ public class Server
 			if (!ServerProcess.HasExited) SignalSender.SendSigint(ServerProcess); // Send SIGINT to gracefully stop Kestrel
 			ServerProcess = null;
 
-			lock (Proxy) Proxy.Server = null; // Clear the server reference to prevent further processing
+			using (Proxy.Lock.Lock()) Proxy.Server = null; // Clear the server reference to prevent further processing
+			
 			Task.Run(async () =>
 			{
 				await Task.Delay(6000);
