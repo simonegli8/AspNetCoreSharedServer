@@ -21,12 +21,13 @@ public class Configuration
 {
 	public class NamedMutex: IDisposable
 	{
+		public static readonly TimeSpan Timeout = TimeSpan.FromSeconds(10); 
 		public const string MutexPath = "Global\\aspnetcore.lock";
 
 		private static Mutex mutex = new Mutex(false, MutexPath);
 		public NamedMutex()
 		{
-			mutex.WaitOne();
+			mutex.WaitOne(Timeout);
 		}
 		public void Dispose()
 		{
