@@ -35,9 +35,9 @@ public class Configuration
 				if (mutex != null) return mutex;
 
 				const string MutexDiskPath = "/tmp/.dotnet/shm/global";
-				if ((OSInfo.IsLinux || OSInfo.IsMac) && !Directory.Exists(MutexPath))
+				if ((OSInfo.IsLinux || OSInfo.IsMac) && !Directory.Exists(MutexDiskPath))
 				{
-					Directory.CreateDirectory(MutexPath);
+					Directory.CreateDirectory(MutexDiskPath);
 					const FileAccessPermissions all =
 						FileAccessPermissions.GroupExecute | FileAccessPermissions.GroupRead | FileAccessPermissions.GroupWrite |
 						FileAccessPermissions.OtherExecute | FileAccessPermissions.OtherRead | FileAccessPermissions.OtherWrite |
