@@ -26,7 +26,7 @@ public class Configuration
 		public static readonly TimeSpan Timeout = TimeSpan.FromSeconds(10); 
 		public const string MutexPath = "Global\\aspnetcore.lock";
 
-		static Mutex mutex = null;
+		static Mutex? mutex = null;
 		static AsyncLock Lock = new AsyncLock();
 		static Mutex Mutex
 		{
@@ -34,18 +34,21 @@ public class Configuration
 			{
 				if (mutex != null) return mutex;
 
-				const string MutexPath = "/tmp/.dotnet/shm/global";
+				const string MutexDiskPath = "/tmp/.dotnet/shm/global";
 				if ((OSInfo.IsLinux || OSInfo.IsMac) && !Directory.Exists(MutexPath))
 				{
 					Directory.CreateDirectory(MutexPath);
-					Unix.GrantUnixPermissions("/tmp/.dotnet",
+					const FileAccessPermissions all =
 						FileAccessPermissions.GroupExecute | FileAccessPermissions.GroupRead | FileAccessPermissions.GroupWrite |
 						FileAccessPermissions.OtherExecute | FileAccessPermissions.OtherRead | FileAccessPermissions.OtherWrite |
-						FileAccessPermissions.UserExecute | FileAccessPermissions.UserRead | FileAccessPermissions.UserWrite,
-						true);
-				}
+						FileAccessPermissions.UserExecute | FileAccessPermissions.UserRead | FileAccessPermissions.UserWrite;
 
-				return mutex = new Mutex(false, MutexPath);
+                    Unix.GrantUnixPermissions("/tmp/.dotnet", all, true);
+                    Unix.GrantUnixPermissions("/tmp/.dotnet/shm", all,true);
+                    Unix.GrantUnixPermissions("/tmp/.dotnet/shm/global", all, true);
+                }
+
+                return mutex = new Mutex(false, MutexPath);
 			}
 		}
 		public NamedMutex()
