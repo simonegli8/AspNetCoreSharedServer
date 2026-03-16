@@ -24,7 +24,7 @@ public class Configuration
 	public class NamedMutex: IDisposable
 	{
 		public static readonly TimeSpan Timeout = TimeSpan.FromSeconds(10); 
-		public const string MutexPath = "Global\\aspnetcore.lock";
+		public const string MutexName = "Global\\aspnetcore.lock";
 
 		static Mutex? mutex = null;
 		static AsyncLock Lock = new AsyncLock();
@@ -48,7 +48,7 @@ public class Configuration
                     Unix.GrantUnixPermissions("/tmp/.dotnet/shm/global", all, true);
                 }
 
-                return mutex = new Mutex(false, MutexPath);
+                return mutex = new Mutex(false, MutexName);
 			}
 		}
 		public NamedMutex()
