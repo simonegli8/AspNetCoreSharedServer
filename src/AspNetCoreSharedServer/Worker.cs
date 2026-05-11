@@ -32,6 +32,7 @@ namespace AspNetCoreSharedServer
             }
 
             Configuration.Current.Shutdown();*/
+            Logger.LogInformation("End of Worker");
 		}
     }
 }

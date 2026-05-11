@@ -232,7 +232,7 @@ public class Proxy
 			}
 			Task.Run(async () =>
 			{
-				await Task.Delay(6000);
+				await Task.Delay(10000);
 				Cancel.Cancel(); // Cancel the main listening loop
 			});
 		}

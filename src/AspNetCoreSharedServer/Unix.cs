@@ -1,37 +1,98 @@
-﻿using Mono.Unix;
-using System;
+﻿using System;
 using System.Collections.Generic;
+using System.Runtime.InteropServices;
 using System.Text;
 
 namespace AspNetCoreSharedServer;
 
+[System.FlagsAttribute]
+public enum UnixFileMode
+{
+    None = 0,
+    OtherExecute = 1,
+    OtherWrite = 2,
+    OtherRead = 4,
+    GroupExecute = 8,
+    GroupWrite = 0x10,
+    GroupRead = 0x20,
+    UserExecute = 0x40,
+    UserWrite = 0x80,
+    UserRead = 0x100,
+    StickyBit = 0x200,
+    SetGroup = 0x400,
+    SetUser = 0x800,
+    All = 0x8ff
+}
+
 public class Unix
 {
-    public static void GrantUnixPermissions(string path, FileAccessPermissions mode, bool resetChildPermissions = false)
+    [DllImport("libc", SetLastError = true)]
+    public static extern int chmod(string path, uint mode);
+
+    [DllImport("libc", SetLastError = true)]
+    public static extern int seteuid(uint euid); 
+    
+    [DllImport("libc", SetLastError = true)]
+    public static extern int setegid(uint egid);
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct Passwd
+    {
+        public IntPtr pw_name;
+        public IntPtr pw_passwd;
+        public uint pw_uid;
+        public uint pw_gid;
+        public IntPtr pw_gecos;
+        public IntPtr pw_dir;
+        public IntPtr pw_shell;
+    }
+
+    [DllImport("libc")]
+    public static extern IntPtr getpwnam(string name);
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct Group
+    {
+        public IntPtr gr_name;
+        public IntPtr gr_passwd;
+        public uint gr_gid;
+        public IntPtr gr_mem; // char** (array of strings)
+    }
+
+    [DllImport("libc")]
+    public static extern IntPtr getgrnam(string name);
+
+    public const int SIGINT = 2;
+
+    [DllImport("libc", SetLastError = true)]
+    public static extern int kill(int pid, int sig);
+
+
+    [DllImport("libc")]
+    public static extern uint getuid();
+
+    public static void GrantUnixPermissions(string path, UnixFileMode mode, bool resetChildPermissions = false)
     {
         if (!resetChildPermissions)
         {
-            var info = UnixFileSystemInfo.GetFileSystemEntry(path);
-            if (info != null && info.Exists)
-            {
-                info.FileAccessPermissions = mode;
-                info.Refresh();
-            }
+            FileSystemInfo info;
+            if (File.Exists(path)) info = new FileInfo(path);
+            else if (Directory.Exists(path)) info = new DirectoryInfo(path);
             else throw new FileNotFoundException(path);
+
+            var prop = info.GetType().GetProperty("UnixFileMode", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+            prop.SetValue(info, mode);
+            info.Refresh();
         }
         else
         {
             GrantUnixPermissions(path, mode, false);
 
-            foreach (var e in Directory.EnumerateFileSystemEntries(path))
+            foreach (var e in new DirectoryInfo(path).GetFileSystemInfos())
             {
-                var info = UnixFileSystemInfo.GetFileSystemEntry(e);
-                if (info != null && info.Exists)
-                {
-                    info.FileAccessPermissions = mode;
-                    info.Refresh();
-                }
-                else throw new FileNotFoundException(e);
+                var prop = e.GetType().GetProperty("UnixFileMode", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+                prop.SetValue(e, mode);
+                e.Refresh();
             }
         }
     }

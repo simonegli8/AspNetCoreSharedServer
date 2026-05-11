@@ -9,10 +9,20 @@ public class Program
         var assembly = Assembly.GetExecutingAssembly();
         Console.WriteLine($"AspNetCoreSharedServer {assembly.GetName().Version}");
 
+        if (args.Contains("-V")) return;
+
         var builder = Host.CreateApplicationBuilder(args);
         builder.Services.AddHostedService<Worker>();
 
-        var host = builder.Build();
-        host.Run();
+        try
+        {
+            var host = builder.Build();
+            host.Run();
+            Console.WriteLine("End of Run");
+        } catch (Exception ex)
+        {
+            Console.WriteLine($"Unahndled exception {ex}");
+        }
+
     }
 }

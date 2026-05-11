@@ -4,7 +4,6 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using System.Diagnostics;
-using Mono.Unix.Native;
 
 namespace AspNetCoreSharedServer;
 
@@ -27,7 +26,7 @@ public class SignalSender
 			if (!OSInfo.IsWindows)
 			{
 				// On Unix-like systems, use the native syscall to send SIGINT
-				Syscall.kill(pid, Signum.SIGINT);
+				Unix.kill(pid, Unix.SIGINT);
 			} else
 			{
 				SendSigintWindows(pid);

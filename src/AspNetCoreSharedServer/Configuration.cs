@@ -1,15 +1,16 @@
-﻿using System.ComponentModel;
-using System.Net;
-using System.Net.Sockets;
-using System.Xml.Linq;
-using System.Diagnostics;
-using System.Linq;
-using Mono.Cecil;
-using Mono.Unix.Native;
+﻿using Mono.Cecil;
+//using Mono.Unix;
+using NeoSmart.AsyncLock;
+//using Mono.Unix.Native;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Converters;
-using Mono.Unix;
-using NeoSmart.AsyncLock;
+using System.ComponentModel;
+using System.Diagnostics;
+using System.Linq;
+using System.Net;
+using System.Net.Sockets;
+using System.Runtime.InteropServices;
+using System.Xml.Linq;
 
 namespace AspNetCoreSharedServer;
 
@@ -38,14 +39,7 @@ public class Configuration
 				if ((OSInfo.IsLinux || OSInfo.IsMac) && !Directory.Exists(MutexDiskPath))
 				{
 					Directory.CreateDirectory(MutexDiskPath);
-					const FileAccessPermissions all =
-						FileAccessPermissions.GroupExecute | FileAccessPermissions.GroupRead | FileAccessPermissions.GroupWrite |
-						FileAccessPermissions.OtherExecute | FileAccessPermissions.OtherRead | FileAccessPermissions.OtherWrite |
-						FileAccessPermissions.UserExecute | FileAccessPermissions.UserRead | FileAccessPermissions.UserWrite;
-
-                    Unix.GrantUnixPermissions("/tmp/.dotnet", all, true);
-                    Unix.GrantUnixPermissions("/tmp/.dotnet/shm", all,true);
-                    Unix.GrantUnixPermissions("/tmp/.dotnet/shm/global", all, true);
+					Unix.GrantUnixPermissions("/tmp/.dotnet", (UnixFileMode)0x1ff, true);
                 }
 
                 return mutex = new Mutex(false, MutexName);
@@ -150,7 +144,8 @@ public class Configuration
 	public bool IsShuttingDown = false;
 
 	bool loadEntered = false;
-	public void Load()
+
+    public void Load()
 	{
 		if (loadEntered || IsShuttingDown) return; // Prevent re-entrancy
 		loadEntered = true;
@@ -214,7 +209,7 @@ public class Configuration
 					.ToList();
 
 				// If not runnig as root, forbid User & Group settings
-				if (!OSInfo.IsWindows && Syscall.getuid() != 0)
+				if (!OSInfo.IsWindows && Unix.getuid() != 0)
 				{
 					if (newApps.Any(app => !string.IsNullOrEmpty(app.User) || !string.IsNullOrEmpty(app.Group)))
 					{
@@ -312,7 +307,8 @@ public class Configuration
 		}
 #endif
 	}
-	public void Save(bool disableWatcher = false)
+
+    public void Save(bool disableWatcher = false)
 	{
 		var dir = Path.GetDirectoryName(ConfigPath);
 		if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
@@ -324,10 +320,10 @@ public class Configuration
 			if (watcher != null && disableWatcher) watcher.EnableRaisingEvents = false;
 			File.WriteAllText(ConfigPath, txt);
 			// If runnig as root, set permissions to read/write for root only
-			if (!OSInfo.IsWindows && Syscall.getuid() == 0)
+			if (!OSInfo.IsWindows && Unix.getuid() == 0)
 			{
-				Syscall.chmod(Path.GetDirectoryName(ConfigPath), FilePermissions.S_IRUSR | FilePermissions.S_IWUSR);
-				Syscall.chmod(ConfigPath, FilePermissions.S_IRUSR | FilePermissions.S_IWUSR);
+				Unix.chmod(Path.GetDirectoryName(ConfigPath), 0x180);
+				Unix.chmod(ConfigPath, 0x180);
 			}
 			Thread.Sleep(100);
 			if (watcher != null && disableWatcher) watcher.EnableRaisingEvents = true;

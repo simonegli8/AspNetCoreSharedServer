@@ -1,6 +1,4 @@
 ﻿
-using Mono.Unix;
-using Mono.Unix.Native;
 using System;
 using System.Buffers;
 using System.Collections.Generic;
@@ -11,6 +9,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Threading.Tasks;
+using System.Runtime.InteropServices;
 
 namespace AspNetCoreSharedServer;
 
@@ -172,7 +171,7 @@ public class Server
 			?.Replace("${loopback}", LoopbackText);
 		uint? uid = null, gid = null;
 
-		if (!OSInfo.IsWindows && Mono.Unix.Native.Syscall.getuid() == 0 &&
+		if (!OSInfo.IsWindows && Unix.getuid() == 0 &&
 			!string.IsNullOrEmpty(user))
 		{
 			if (!OSInfo.IsMac)
@@ -186,16 +185,17 @@ public class Server
 				info.Arguments = $"-u {user} {groupArg}{env}-- {(dotnet ? $"\"{dotnetwithpath}\" " : "")}\"{Application.Assembly}\"{(string.IsNullOrEmpty(arguments) ? "" : " " + arguments)}";
 			} else
 			{
-				var userrec = Syscall.getpwnam(user);
-				var grouprec = !string.IsNullOrEmpty(group) ? Syscall.getgrnam(group)  :null;
+				var userrec = Unix.getpwnam(user);
+				var grouprec = !string.IsNullOrEmpty(group) ? Unix.getgrnam(group) : IntPtr.Zero;
 				if (userrec == null)
 				{
 					Logger.LogError($"User {user} not found.");
 					return;
 				} else
 				{
-					uid = userrec.pw_uid;
-					gid = userrec.pw_gid;
+					var rec= Marshal.PtrToStructure<Unix.Passwd>(userrec);
+                    uid = rec.pw_uid;
+					gid = rec.pw_gid;
 				}
 				if (!string.IsNullOrEmpty(group) && grouprec == null)
 				{
@@ -203,7 +203,8 @@ public class Server
 					return;
 				} else if (grouprec != null)
 				{
-					gid = grouprec.gr_gid;
+					var rec = Marshal.PtrToStructure<Unix.Group>(grouprec);
+                    gid = rec.gr_gid;
 				}
 
 				if (dotnet)
@@ -250,7 +251,7 @@ public class Server
 		if (gid != null || uid != null)
 		{
 			// Switch group first, then user
-			if (gid != null && Syscall.setegid(gid.Value) != 0 || uid != null && Syscall.seteuid(uid.Value) != 0)
+			if (gid != null && Unix.setegid(gid.Value) != 0 || uid != null && Unix.seteuid(uid.Value) != 0)
 			{
 				Logger.LogError("Failed to switch user/group (need to run as root).");
 				return;
@@ -259,7 +260,7 @@ public class Server
 			ServerProcess = Process.Start(info);
 
 			// Revert to root
-			if ((gid != null || uid != null) && (Syscall.setegid(0) != 0 || Syscall.seteuid(0) != 0))
+			if ((gid != null || uid != null) && (Unix.setegid(0) != 0 || Unix.seteuid(0) != 0))
 			{
 				Logger.LogError("Failed to switch back to root.");
 				return;
@@ -294,7 +295,7 @@ public class Server
 			
 			Task.Run(async () =>
 			{
-				await Task.Delay(6000);
+				await Task.Delay(10000);
 				Cancel.Cancel();
 			});
 			
