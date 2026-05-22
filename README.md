@@ -114,7 +114,7 @@ var port = AspServer.FindFreePort();
 If you do non atomic stuff with AspServer.Configuration, you must enclose it in a mutex lock:
 
 ```
-using var mutex = AspServer.Mutex {
+using (var mutex = AspServer.Mutex) {
     code that manupulates AspServer.Configuration ...
 }
 ```
