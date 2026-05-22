@@ -5,40 +5,11 @@ run as a permanent Systemd service using resources, but should be started on dem
 
 # Usage
 First install AspNetCoreSharedServer using the comman `sudo dotnet tool install AspNetCoreSharedServer --global`.
+Next, execute `aspnet-server install` to install the server as a service. This works on Linux using Systemd or OpenRC
+(like on Alpine) and on macOS. You can then manage the service with your system's service commands and the name
+`aspnet-server`. To uninstall the system service run `aspnet-server uninstall`. To show help on usage, execute 
+`aspnet-server -?` or `aspnet-server -help`.
 
-## Run AspNetCoreSharedServer as a systems service.
-To install AspNetCoreSharedServer as a system service, run sudo 
-Next, use a aspnetcore-shared-server.service file like the following to run AspNetCoreSharedServer as a Systemd service:
-```ini
-[Unit]
-Description=AspNetCoreSharedServer service, a shared server for serving ASP.NET Core applications over a proxy.
-Requires=network-online.target
-After=network-online.target
-StartLimitIntervalSec=500
-StartLimitBurst=5
-
-[Service]
-Type=simple
-ExecStart=/root/.dotnet/tools/AspNetCoreSharedServer
-Environment="ASPNETCORE_ENVIRONMENT=Production"
-Environment="DOTNET_ROOT=/usr/share/dotnet"
-Restart=on-failure
-RestartSec=1s
-StandardOutput=journal+console
-StandardError=journal+console
-SyslogIdentifier=aspnetcore-shared-server
-User=root
-Group=www-data
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Put the service file in `/lib/systemd/system/aspnetcore-shared-server.service` and enable it with:
-```bash
-sudo systemctl enable aspnetcore-shared-server
-sudo systemctl start aspnetcore-shared-server
-```
 
 ## Configure AspNetCoreSharedServer
 All the configuration is stored in /etc/aspnetcore/applications.json.
@@ -47,6 +18,18 @@ When the configuration is changed, changes are applied on the fly. The applicati
 {
   "IdleTimeout": 300,
   "Recycle": 1200,
+  "Disbled": false,
+  "User": "root",
+  "Group": "www-data"
+  "FailureLimit": 5,
+  "FailureInterval": "00:05:00",
+  "Syslog": {
+    "Host": "localhost",
+    "Port": 514,
+    "Protocol": "Udp"
+  },
+  "Command": "None",
+
   "Applications": [
     {
       "Name": "MyApp",
@@ -58,7 +41,11 @@ When the configuration is changed, changes are applied on the fly. The applicati
         "ASPNETCORE_ENVIRONMENT": "Production"
       }
       "IdleTimeout": 300,
-      "Recycle": 1200
+      "Recycle": 1200,
+      "Disabled": false,
+      "User": "www-data",
+      "Group": "www-data",
+      "Status": "Running"
     }, 
     ... more applications can be defined here ...
   ]
@@ -73,6 +60,10 @@ When the configuration is changed, changes are applied on the fly. The applicati
 - `IdleTimeout` is the time in seconds or JSON time value after which the application will be stopped when it is idle.
 - `Recycle` is the time in seconds or JSON time value after which the application will be restarted, regardless of activity.
 - `Environment` is a dictionary of environment variables that will be set for the application when it is started.
+- `Disable` if true, the application or the server is disabled.
+- `Syslog` optional Syslog configuration.
+- `FailureLimit` number of failures within `FailureInterval` in order to disable app pool.
+- `FailureInterval` time span within to count the number of failures.
 
 After you have defined your applications in the applications.json file, you can proxy to the sockets specified in ListenUrls 
 from Apache or Nginx. The original Urls that Apache or Nginx serve will be passed to Kestrel as a environment varibale
@@ -96,13 +87,13 @@ var app = new Application()
 	ListenUrls = "http://localhost:10000",
 	Urls = "http://original-domain.org",
 };
-Configuration.Current.Update(app);
+AspServer.Configuration.Update(app);
 or
-Configuration.Current.Add(app);
+AspServer.Configuration.Add(app);
 or
-Configuration.Current.Remove(app);
+AspServer.Configuration.Remove(app);
 or
-Configuration.Current.Remove("App Name");
+AspServer.Configuration.Remove("App Name");
 ```
 
 Or to lookup an application:
@@ -110,12 +101,20 @@ Or to lookup an application:
 ```
 using AspNetCoreSharedServer;
 ...
-Configuration.Current.Load();
-var app = Configuration.Current.Applications.FirstOrDefault(app => app.Name == "Name of Application");
+AspServer.Configuration.Load();
+var app = AspServer.Configuration.Applications["Name of Application"];
 ...
 ```
 
 To find a free IP port:
 ```
-var port = Configuration.Current.FindFreePort();
+var port = AspServer.FindFreePort();
+```
+
+If you do non atomic stuff with AspServer.Configuration, you must enclose it in a mutex lock:
+
+```
+using var mutex = AspServer.Mutex {
+    code that manupulates AspServer.Configuration ...
+}
 ```

@@ -37,13 +37,26 @@ public class Program
             if (args.Contains("start", StringComparer.OrdinalIgnoreCase))
             {
                 Installer.ServiceController.Start(Installer.ServiceId);
-                Console.WriteLine("aspnet-server started");
+                if (Installer.ServiceController.Info(Installer.ServiceId)?.Status == OSServiceStatus.Running)
+                {
+                    Console.WriteLine("aspnet-server started");
+                } else
+                {
+                    Console.WriteLine("Failed to start aspnet-server");
+                }
                 return;
             }
             if (args.Contains("stop", StringComparer.OrdinalIgnoreCase))
             {
                 Installer.ServiceController.Stop(Installer.ServiceId);
-                Console.WriteLine("aspnet-server stopped");
+                if (Installer.ServiceController.Info(Installer.ServiceId)?.Status == OSServiceStatus.Stopped)
+                {
+                    Console.WriteLine("aspnet-server stopped");
+                }
+                else
+                {
+                    Console.WriteLine("Failed to stop aspnet-server");
+                }
                 return;
             }
             if (args.Contains("enable", StringComparer.OrdinalIgnoreCase))
@@ -62,7 +75,14 @@ public class Program
             if (args.Contains("restart", StringComparer.OrdinalIgnoreCase))
             {
                 Installer.ServiceController.Restart(Installer.ServiceId);
-                Console.WriteLine("aspnet-server restarted");
+                if (Installer.ServiceController.Info(Installer.ServiceId)?.Status == OSServiceStatus.Running)
+                {
+                    Console.WriteLine("aspnet-server restarted");
+                }
+                else
+                {
+                    Console.WriteLine("Failed to restart aspnet-server");
+                }
                 return;
             }
             if (args.Contains("status", StringComparer.OrdinalIgnoreCase))
@@ -71,7 +91,9 @@ public class Program
                 Console.WriteLine(info.Status.ToString());
                 return;
             }
-            if (args.Length > 1)
+            if (args.Any(a => a.Contains("help")) || args.Any(a => a.Contains("?")) ||
+                args.Length == 1 && !args[0].EndsWith(".dll", StringComparison.OrdinalIgnoreCase) ||
+                args.Length > 1)
             {
                 PrintVersion();
                 Console.WriteLine(@"

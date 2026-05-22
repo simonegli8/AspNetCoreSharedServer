@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
+using AspNetCoreSharedServer.Util;
 
 namespace AspNetCoreSharedServer.Services;
 
@@ -159,8 +160,8 @@ public class Installer
         }
         const string Description = "ASP.NET Core Shared Server support for shared hosting of ASP.NET Core applications";
         string Command;
-        if (!OSInfo.IsMac) Command = "/root/.dotnet/tools/aspnet-server";
-        else Command = "/var/bin/aspnet-server";
+        if (!OSInfo.IsMac) Command = $"/root/.dotnet/tools/{ServiceId}";
+        else Command = $"/var/bin/{ServiceId}";
         string Directory = Path.GetDirectoryName(Command);
 
         ServiceDescription service;
@@ -201,8 +202,8 @@ public class Installer
                 WorkingDirectory = Directory,
                 CommandBackground = true,
                 PidFile = $"/run/{ServiceId}.pid",
-                OutputLog = $"/var/log/aspnet-shared-server.log",
-                ErrorLog = $"/var/log/aspnet-shared-server.err",
+                OutputLog = $"/var/log/aspnet-server.log",
+                ErrorLog = $"/var/log/aspnet-server.err",
                 StopTimeout = 30
             };
             if (!OSInfo.IsWSL) rcservice.Need = "net";
