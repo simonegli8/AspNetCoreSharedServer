@@ -27,8 +27,8 @@
         <RepositoryUrl>https://github.com/simonegli8/AspNetCoreSharedServer</RepositoryUrl>
         <RepositoryType>git</RepositoryType>
         <PackageTags>ASP.NET Core;shared hosting;running Kestrel on demand</PackageTags>
-		<AssemblyVersion>1.3.7.0</AssemblyVersion>
-        <FileVersion>1.3.7.0</FileVersion>
+		<AssemblyVersion>2.0.0.0</AssemblyVersion>
+        <FileVersion>2.0.0.0</FileVersion>
         <PackageLicenseExpression>MIT</PackageLicenseExpression>
         <IncludeSymbols>false</IncludeSymbols>
         <PublishRepositoryUrl>true</PublishRepositoryUrl>
@@ -60,7 +60,31 @@
 		<Compile Include="..\AspNetCoreSharedServer\Unix.cs">
 			<Link>Unix.cs</Link>
 		</Compile>
-	</ItemGroup>
+        <Compile Include="..\AspNetCoreSharedServer\Installer\ServiceControllers\LaunchdServcieController.cs">
+            <Link>Installer\ServiceControllers\LaunchdServcieController.cs</Link>
+        </Compile>
+        <Compile Include="..\AspNetCoreSharedServer\Installer\ServiceControllers\OpenRCServiceController.cs">
+            <Link>Installer\ServiceControllers\OpenRCServiceController.cs</Link>
+        </Compile>
+        <Compile Include="..\AspNetCoreSharedServer\Installer\ServiceControllers\SystemdServiceController.cs">
+            <Link>Installer\ServiceControllers\SystemdServiceController.cs</Link>
+        </Compile>
+        <Compile Include="..\AspNetCoreSharedServer\Installer\Installer.cs">
+            <Link>Installer\Installer.cs</Link>
+        </Compile>
+        <Compile Include="..\AspNetCoreSharedServer\Installer\ServiceController.cs">
+            <Link>Installer\ServiceController.cs</Link>
+        </Compile>
+        <Compile Include="..\AspNetCoreSharedServer\Installer\Shell.cs">
+            <Link>Installer\Shell.cs</Link>
+        </Compile>
+        <Compile Include="..\AspNetCoreSharedServer\Log\SyslogLogger.cs">
+            <Link>Log\SyslogLogger.cs</Link>
+        </Compile>
+        <Compile Include="..\AspNetCoreSharedServer\Log\SyslogLoggerProvider.cs">
+            <Link>Log\SyslogLoggerProvider.cs</Link>
+        </Compile>
+    </ItemGroup>
     
     <ItemGroup>
         <Content Include="..\AspNetCoreSharedServer\README.md" Pack="true" PackagePath="\">
@@ -77,5 +101,7 @@
 		<PackageReference Include="Mono.Unix" Version="7.1.0-final.1.21458.1" />-->
 		<PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
 		<PackageReference Include="NeoSmart.AsyncLock" Version="3.2.1" />
-	</ItemGroup>
+        <PackageReference Include="plist-cil" Version="2.3.1" />
+        <PackageReference Include="SyslogNet.ClientStandard" Version="0.3.4" />
+    </ItemGroup>
 </Project>

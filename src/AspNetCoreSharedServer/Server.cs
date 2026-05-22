@@ -4,6 +4,7 @@ using System;
 using System.Buffers;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Diagnostics.Contracts;
 using System.IO;
 using System.Linq;
 using System.Net;
@@ -275,14 +276,19 @@ public class Server
 			ServerProcess = Process.Start(info);
 		}
 
-		ServerProcess?.Exited += (sender, args) => Application.SetStatus(Status.Stopped, null);
+		ServerProcess?.Exited += (sender, args) =>
+		{
+			if (!shuttingDown) Proxy.Fail();
+			Application.SetStatus(Status.Stopped, null);
+		};
 
 		Ticks = DateTime.Now.ToBinary();
 
 		if (ServerProcess.HasExited)
 		{
-			Logger.LogError($"{Application.Name}: Failed to start application.");
-			Application.SetStatus(Status.Error, "Failed to start application.\"");
+            Proxy.Fail();
+            Logger.LogError($"{Application.Name}: Failed to start application.");
+			Application.SetStatus(Status.Error, "Failed to start application.\"", true);
 		}
         
 		if (Proxy.Recycle != null || Proxy.IdleTimeout != null ||

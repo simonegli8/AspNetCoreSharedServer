@@ -1,4 +1,8 @@
+using AspNetCoreSharedServer.Services;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Converters;
 using Newtonsoft.Json.Linq;
+using System.Reflection;
 
 namespace AspNetCoreSharedServer
 {
@@ -9,7 +13,7 @@ namespace AspNetCoreSharedServer
 
         public Worker(ILogger<Worker> logger, IHostApplicationLifetime lifetime)
         {
-            Logger = logger;
+            Configuration.Current.Logger = Logger = logger;
             Lifetime = lifetime;
             lifetime.ApplicationStopping.Register(() =>
             {
@@ -25,6 +29,9 @@ namespace AspNetCoreSharedServer
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
+            var args = Environment.GetCommandLineArgs();
+
+
             Configuration.Current.Logger = Logger;
             Configuration.Current.Watch();
 

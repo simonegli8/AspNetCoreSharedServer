@@ -2,6 +2,7 @@
   "profiles": {
     "AspNetCoreSharedServer": {
       "commandName": "Project",
+      "commandLineArgs": "-v",
       "environmentVariables": {
         "DOTNET_ENVIRONMENT": "Development"
       },
@@ -9,10 +10,10 @@
     },
     "WSL": {
       "commandName": "WSL2",
+      "commandLineArgs": "/mnt/c/GitHub/AspNetCoreSharedServer/src/AspNetCoreSharedServer/bin/Debug/net10.0/AspNetCoreSharedServer.dll -v",
       "environmentVariables": {
         "DOTNET_ENVIRONMENT": "Development"
-      },
-      "distributionName": ""
+      }
     },
     "Debian-Test": {
       "commandName": "WSL2",
@@ -20,8 +21,7 @@
         "DOTNET_ENVIRONMENT": "Development"
       },
       "distributionName": "Debian-Test"
-    }
-
+    },
   },
   "$schema": "http://json.schemastore.org/launchsettings.json"
 }

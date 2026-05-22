@@ -6,7 +6,8 @@ run as a permanent Systemd service using resources, but should be started on dem
 # Usage
 First install AspNetCoreSharedServer using the comman `sudo dotnet tool install AspNetCoreSharedServer --global`.
 
-## Run AspNetCoreSharedServer as a Systemd service.
+## Run AspNetCoreSharedServer as a systems service.
+To install AspNetCoreSharedServer as a system service, run sudo 
 Next, use a aspnetcore-shared-server.service file like the following to run AspNetCoreSharedServer as a Systemd service:
 ```ini
 [Unit]
