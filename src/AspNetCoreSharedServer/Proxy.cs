@@ -71,7 +71,7 @@ public class Proxy
 		}
 		if (HasHttp)
 		{
-			if (httpUri.Port == 80)
+			if (httpUri.Port == 0)
 			{
 				httpPort = Configuration.FindFreePort();
 				actualurls.Add($"http://{httpUri.Host}:{httpPort}");
@@ -85,7 +85,7 @@ public class Proxy
 
 		if (HasHttps)
 		{
-			if (httpsUri.Port == 443)
+			if (httpsUri.Port == 0)
 			{
 				httpsPort = Configuration.FindFreePort();
 				actualurls.Add($"https://{httpsUri.Host}:{httpsPort}");
@@ -99,7 +99,7 @@ public class Proxy
 
 		if (HasNetTcp)
 		{
-			if (nettcpUri.Port == 808)
+			if (nettcpUri.Port == 0)
 			{
 				nettcpPort = Configuration.FindFreePort();
 				actualurls.Add($"nettcp://{nettcpUri.Host}:{nettcpPort}");
@@ -202,15 +202,15 @@ public class Proxy
 		catch (SocketException ex)
 		{
 			Logger.LogError(ex, $"{Application.Name}: Socket error while starting server");
-			Configuration.Current.ReportError($"{Application.Name}: Socket error while starting server", ex);
 			exception = true;
+			Application.SetStatus(Status.Error, $"Socket error while starting server {ex}");
 			throw;
 		}
 		catch (Exception ex)
 		{
 			Logger.LogError(ex, $"{Application.Name}: Error while starting server");
-			Configuration.Current.ReportError($"{Application.Name}: Socket error while starting server", ex);
-			exception = true;
+            exception = true;
+            Application.SetStatus(Status.Error, $"Error while starting server {ex}");
 			throw;
 		}
 		finally
@@ -236,9 +236,9 @@ public class Proxy
 				Cancel.Cancel(); // Cancel the main listening loop
 			});
 		}
-	}
+    }
 
-	public Server StartServer()
+    public Server StartServer()
 	{
 		lock (this)
 		{
@@ -260,7 +260,7 @@ public class Proxy
 		catch (Exception ex)
 		{
 			Logger.LogError($"{Application.Name} listening on {source.LocalEndpoint} failed: {ex.Message}");
-			return;
+			throw;
 		}
 		
 		while (!Cancel.IsCancellationRequested)
@@ -273,10 +273,10 @@ public class Proxy
 			}
 			catch (SocketException ex)
 			{
-				Logger.LogError(ex, "Socket error while accepting TCP client");
-				Configuration.Current.ReportError("Socket error while accepting TCP client", ex);
-			}
-		}
+				Logger.LogError(ex, $"{Application.Name}: Socket error while accepting TCP client");
+				Application.SetStatus(Status.Error, $"Socket error while accepting TCP client {ex}");
+            }
+        }
 	}
 	public async Task ListenAsync(UdpClient source, Func<Server, UdpClient> getDestination)
 	{

@@ -1,4 +1,5 @@
 ﻿
+using Mono.Cecil;
 using System;
 using System.Buffers;
 using System.Collections.Generic;
@@ -7,9 +8,9 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
-using System.Runtime.InteropServices;
 
 namespace AspNetCoreSharedServer;
 
@@ -250,20 +251,23 @@ public class Server
 
 		if (gid != null || uid != null)
 		{
-			// Switch group first, then user
-			if (gid != null && Unix.setegid(gid.Value) != 0 || uid != null && Unix.seteuid(uid.Value) != 0)
+			lock (Configuration.Current)
 			{
-				Logger.LogError("Failed to switch user/group (need to run as root).");
-				return;
-			}
+				// Switch group first, then user
+				if (gid != null && Unix.setegid(gid.Value) != 0 || uid != null && Unix.seteuid(uid.Value) != 0)
+				{
+					Logger.LogError("Failed to switch user/group (need to run as root).");
+					return;
+				}
 
-			ServerProcess = Process.Start(info);
+				ServerProcess = Process.Start(info);
 
-			// Revert to root
-			if ((gid != null || uid != null) && (Unix.setegid(0) != 0 || Unix.seteuid(0) != 0))
-			{
-				Logger.LogError("Failed to switch back to root.");
-				return;
+				// Revert to root
+				if ((gid != null || uid != null) && (Unix.setegid(0) != 0 || Unix.seteuid(0) != 0))
+				{
+					Logger.LogError("Failed to switch back to root.");
+					return;
+				}
 			}
 		}
 		else
@@ -271,13 +275,19 @@ public class Server
 			ServerProcess = Process.Start(info);
 		}
 
-		Ticks = DateTime.Now.ToBinary();
-		
-		if (ServerProcess.HasExited) Logger.LogError($"{Application.Name}: Failed to start application.");
+		ServerProcess?.Exited += (sender, args) => Application.SetStatus(Status.Stopped, null);
 
+		Ticks = DateTime.Now.ToBinary();
+
+		if (ServerProcess.HasExited)
+		{
+			Logger.LogError($"{Application.Name}: Failed to start application.");
+			Application.SetStatus(Status.Error, "Failed to start application.\"");
+		}
+        
 		if (Proxy.Recycle != null || Proxy.IdleTimeout != null ||
-			Proxy.Recycle != TimeSpan.Zero || Proxy.IdleTimeout != TimeSpan.Zero)
-			Task.Run(async () => await CheckTimeout());
+		Proxy.Recycle != TimeSpan.Zero || Proxy.IdleTimeout != TimeSpan.Zero)
+		Task.Run(async () => await CheckTimeout());
 	}
 	bool shuttingDown = false;
 	public void Shutdown()
@@ -287,6 +297,7 @@ public class Server
 		if (ServerProcess != null)
 		{
 			shuttingDown = true;
+			Application.SetStatus(Status.Stopping, null);
 
 			if (!ServerProcess.HasExited) SignalSender.SendSigint(ServerProcess); // Send SIGINT to gracefully stop Kestrel
 			ServerProcess = null;
@@ -298,11 +309,10 @@ public class Server
 				await Task.Delay(10000);
 				Cancel.Cancel();
 			});
-			
-		}
-	}
+        }
+    }
 
-	public async Task CheckTimeout()
+    public async Task CheckTimeout()
 	{
 		do
 		{

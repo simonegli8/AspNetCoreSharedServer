@@ -27,15 +27,17 @@
 		<RepositoryUrl>https://github.com/simonegli8/AspNetCoreSharedServer</RepositoryUrl>
 		<RepositoryType>git</RepositoryType>
 		<PackageTags>ASP.NET Core;shared hosting;running Kestrel on demand</PackageTags>
-		<AssemblyVersion>1.3.6.0</AssemblyVersion>
-		<FileVersion>1.3.6.0</FileVersion>
+		<AssemblyVersion>1.3.7.0</AssemblyVersion>
+		<FileVersion>1.3.7.0</FileVersion>
 		<PackageLicenseExpression>MIT</PackageLicenseExpression>
 		<IncludeSymbols>false</IncludeSymbols>
 		<PublishRepositoryUrl>true</PublishRepositoryUrl>
+        <PackageOutputPath>..\..\nupkg</PackageOutputPath>
 	</PropertyGroup>
 
 	<ItemGroup>
 		<Compile Remove="AppAssemblyLoadContext.cs" />
+		<Compile Remove="CommandPipe.cs" />
 	</ItemGroup>
 
 	<ItemGroup>
@@ -48,6 +50,7 @@
 
 	<ItemGroup>
 		<None Include="AppAssemblyLoadContext.cs" />
+		<None Include="CommandPipe.cs" />
 	</ItemGroup>
 
 	<ItemGroup>

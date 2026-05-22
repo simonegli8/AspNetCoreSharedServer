@@ -1,3 +1,5 @@
+using Newtonsoft.Json.Linq;
+
 namespace AspNetCoreSharedServer
 {
     public class Worker : BackgroundService
@@ -26,13 +28,13 @@ namespace AspNetCoreSharedServer
             Configuration.Current.Logger = Logger;
             Configuration.Current.Watch();
 
-            /*while (!stoppingToken.IsCancellationRequested && !Cancel.IsCancellationRequested)
-            {
-                await Task.Delay(5000, stoppingToken);
-            }
+            var tcs = new TaskCompletionSource();
+            stoppingToken.Register(() => tcs.TrySetResult());
 
-            Configuration.Current.Shutdown();*/
+            await tcs.Task;
+
             Logger.LogInformation("End of Worker");
+            Configuration.Current.Shutdown();
 		}
     }
 }

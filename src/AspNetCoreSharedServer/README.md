@@ -46,6 +46,7 @@ When the configuration is changed, changes are applied on the fly. The applicati
 {
   "IdleTimeout": 300,
   "Recycle": 1200,
+  "Disbled": false
   "Applications": [
     {
       "Name": "MyApp",
@@ -57,7 +58,10 @@ When the configuration is changed, changes are applied on the fly. The applicati
         "ASPNETCORE_ENVIRONMENT": "Production"
       }
       "IdleTimeout": 300,
-      "Recycle": 1200
+      "Recycle": 1200,
+      "Disabled": false,
+      "User": "root",
+      "Group": "root"
     }, 
     ... more applications can be defined here ...
   ]

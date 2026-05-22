@@ -14,12 +14,12 @@
       },
       "distributionName": ""
     },
-    "Debian-Test-Clone": {
+    "Debian-Test": {
       "commandName": "WSL2",
       "environmentVariables": {
         "DOTNET_ENVIRONMENT": "Development"
       },
-      "distributionName": "Debian-Test-Clone"
+      "distributionName": "Debian-Test"
     }
 
   },

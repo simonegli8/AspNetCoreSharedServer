@@ -4,6 +4,7 @@ using NeoSmart.AsyncLock;
 //using Mono.Unix.Native;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Converters;
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Linq;
@@ -19,6 +20,18 @@ public enum Command
 {
 	None = 0,
 	Shutdown = 1,
+	Restart = 2
+}
+
+[JsonConverter(typeof(StringEnumConverter))]
+public enum Status
+{
+    Stopped = 0,
+    Error = 1,
+    Stopping = 2,
+    Starting = 3,
+    Running = 4
+
 }
 public class Configuration
 {
@@ -42,12 +55,19 @@ public class Configuration
 					Unix.GrantUnixPermissions("/tmp/.dotnet", (UnixFileMode)0x1ff, true);
                 }
 
-                return mutex = new Mutex(false, MutexName);
+				return mutex = new Mutex(false, MutexName);
 			}
 		}
 		public NamedMutex()
 		{
-			using (Lock.Lock()) Mutex.WaitOne(Timeout);
+			using (Lock.Lock())
+			{
+				try
+				{
+					Mutex.WaitOne(Timeout);
+				}
+				catch (AbandonedMutexException) { }
+			}
 		}
 		public void Dispose()
 		{
@@ -127,7 +147,7 @@ public class Configuration
 	[JsonIgnore]
 	public ILogger<Worker> Logger = null;
 #endif
-	public List<Application> Applications { get; set; } = new List<Application>();
+	public Applications Applications { get; set; } = new Applications();
 	public readonly static TimeSpan GlobalIdleTimeout = TimeSpan.FromMinutes(20);
 	public readonly static TimeSpan GlobalRecycle = TimeSpan.FromHours(29);
 	public TimeSpan? IdleTimeout { get; set; } = GlobalIdleTimeout;
@@ -142,7 +162,8 @@ public class Configuration
 	[DefaultValue(Command.None)]
 	public Command Command { get; set; } = Command.None;
 	public bool IsShuttingDown = false;
-
+    [DefaultValue(false)]
+    public bool Disabled { get; set; } = false;
 	bool loadEntered = false;
 
     public void Load()
@@ -182,29 +203,40 @@ public class Configuration
 #if Server
 				if (config.Command == Command.Shutdown)
 				{
-					// If the command is Shutdown, we should shutdown the server.
-					Logger.LogInformation("Received shutdown command, shutting down server.");
+                    // remove Shutdown command from config
+                    config.Command = Command.None;
+                    config.Save(true);
+
+                    // If the command is Shutdown, we should shutdown the server.
+                    Logger.LogInformation("Received shutdown command, shutting down server.");
 					Shutdown();
 
-					// remove Shutdown command from config
-					config.Command = Command.None;
-					config.Save(true);
-					
 					return;
-				}
+				} else if (config.Command == Command.Restart)
+				{
+                    // remove restart command from config
+                    config.Command = Command.None;
+                    config.Save(true);
 
-				RemoveError();
+                    // If the command is Restart, we should restart the server.
+                    Logger.LogInformation("Received restart command, restarting server.");
+                    Restart();
 
-				IdleTimeout = config.IdleTimeout;
+                    return;
+                }
+
+                IdleTimeout = config.IdleTimeout;
 				Recycle = config.Recycle;
 				EnableHttp3 = config.EnableHttp3;
 				var ouser = User;
 				User = config.User;
+				var oldDisabled = Disabled;
+				Disabled = config.Disabled;
 
 				var oldApps = Applications
 					.OrderBy(app => app.Name)
 					.ToList();
-				var newApps = (config?.Applications ?? new List<Application>())
+				var newApps = (config?.Applications ?? new Applications())
 					.OrderBy(app => app.Name)
 					.ToList();
 
@@ -246,24 +278,22 @@ public class Configuration
 						if (oapp.Assembly != app.Assembly || oapp.Urls != app.Urls || oapp.Arguments != app.Arguments ||
 							oapp.ListenUrls != app.ListenUrls || ((oapp.User ?? ouser) != (app.User ?? User)) || oapp.Group != app.Group ||
 							!oapp.Environment.Keys.All(key => app.Environment.ContainsKey(key) && app.Environment[key] == oapp.Environment[key]) ||
-							oapp.IdleTimeout != app.IdleTimeout || oapp.Recycle != app.Recycle)
+							oapp.IdleTimeout != app.IdleTimeout || oapp.Recycle != app.Recycle || (oapp.Disabled || oldDisabled) != (app.Disabled || Disabled))
 						{
 							if (oapp.Proxy != null)
 							{
 								oapp.Proxy.Shutdown();
 								oapp.Proxy = null;
 							}
-							Listen(app);
-						}
-						else
-						{
-							app.Proxy = oapp.Proxy;
+							app.CopyTo(oapp);
+							if (!oapp.Disabled && !Disabled) Listen(oapp);
 						}
 						oi++;
 					}
 					else
 					{
-						Listen(app);
+                        if (!app.Disabled && !Disabled) Listen(app);
+						Applications.Add(app);
 					}
 				}
 
@@ -275,10 +305,9 @@ public class Configuration
 						oapp.Proxy.Shutdown();
 						oapp.Proxy = null;
 					}
+					Applications.Remove(oapp);
 					oi++;
 				}
-
-				Applications = newApps;
 
 				if (!File.Exists(ConfigPath)) Save(true);
 				else SaveIfDirty(true);
@@ -288,6 +317,7 @@ public class Configuration
 				EnableHttp3 = config.EnableHttp3;
 				Applications = config.Applications;
 				User = config.User;
+				Disabled = config.Disabled;
 #endif
 			}
 			finally
@@ -304,6 +334,9 @@ public class Configuration
 		{
 			var server = new Proxy(app);
 			Task.Run(() => server.ListenAsync());
+			using var mutex = new Configuration.NamedMutex();
+			app.Status = Status.Running;
+			Configuration.Current.Save(true);
 		}
 #endif
 	}
@@ -320,7 +353,7 @@ public class Configuration
 			if (watcher != null && disableWatcher) watcher.EnableRaisingEvents = false;
 			File.WriteAllText(ConfigPath, txt);
 			// If runnig as root, set permissions to read/write for root only
-			if (!OSInfo.IsWindows && Unix.getuid() == 0)
+			if (!OSInfo.IsWindows /* && Unix.getuid() == 0 */)
 			{
 				Unix.chmod(Path.GetDirectoryName(ConfigPath), 0x180);
 				Unix.chmod(ConfigPath, 0x180);
@@ -337,7 +370,7 @@ public class Configuration
 			Save(disableWatcher);
 		}
 	}
-	public void ReportError(string message, Exception ex)
+	/*public void ReportError(string message, Exception ex)
 	{
 		var dir = Path.GetDirectoryName(ConfigPath);
 		if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
@@ -354,7 +387,8 @@ public class Configuration
 		var file = Path.ChangeExtension(ConfigPath, "error");
 		if (File.Exists(file)) return File.ReadAllText(file);
 		return null;
-	}
+	}*/
+
 	public void Add(Application app)
 	{
 		using (var mutex = new NamedMutex())
@@ -459,8 +493,30 @@ public class Configuration
 		Save(true);
 #endif
 	}
-}
+    public void Restart()
+    {
+#if Server
+        foreach (var app in Applications)
+        {
+            if (app.Proxy != null)
+            {
+                app.Proxy.Cancel.Cancel();
+                app.Proxy.Shutdown();
+                app.Proxy = null;
+            }
+        }
+		Load();
+#else
+		Command = Command.Restart;
+		Save(true);
+#endif
+    }
 
+}
+public class Applications: KeyedCollection<string, Application>
+{
+	protected override string GetKeyForItem(Application item) => item.Name;
+}
 public class Application
 {
 	public string Name { get; set; } = string.Empty;
@@ -495,18 +551,59 @@ public class Application
 	public string? User { get; set; } = null;
 	[DefaultValue(null)]
 	public string? Group { get; set; } = null;
-
+	[DefaultValue(false)]
+	public bool Disabled { get; set; } = false;
+    [DefaultValue(Status.Running)]
+    public Status Status { get; set; } = Status.Running;
+    [DefaultValue(null)]
+    public string? Error { get; set; } = null;
+	[DefaultValue(Command.None)]
+	public Command Command { get; set; } = Command.None;
 #if Server
-	[JsonIgnore]
+    [JsonIgnore]
 	public Proxy? Proxy { get; set; } = null;
 #endif
 
-	public static IEnumerable<string> FindAssemblies(string path)
+	public void CopyTo(Application app)
+	{
+		app.Arguments = Arguments;
+		app.Assembly = Assembly;
+		app.Command = Command;
+		app.Dirty = Dirty;
+		app.Disabled = Disabled;
+		app.EnableHttp3 = EnableHttp3;
+		app.Environment = Environment;
+		app.Error = Error;
+		app.Group = Group;
+		app.IdleTimeout = IdleTimeout;
+		app.ListenUrls = ListenUrls;
+		app.Name = Name;
+		app.Path = Path;
+		app.Recycle = Recycle;
+		app.Status = Status;
+		app.Urls = Urls;
+		app.User = User;
+#if Server
+		app.Proxy = Proxy;
+#endif
+	}
+
+	internal void SetStatus(Status status, string? error)
+	{
+        using var mutex = new Configuration.NamedMutex();
+        if (Status != status && Error != error)
+        {
+            Status = status; Error = error;
+            Configuration.Current.Save(true);
+        }
+    }
+    public static IEnumerable<string> FindAssemblies(string path)
 	{
 		if (string.IsNullOrEmpty(path) || !Directory.Exists(path)) yield break;
 
 		var webConfig = System.IO.Path.Combine(path, "web.config");
-		if (File.Exists(webConfig))
+		if (!File.Exists(webConfig)) webConfig = System.IO.Path.Combine(path, "Web.config");
+        if (File.Exists(webConfig))
 		{
 			// If web.config exists, it's likely an ASP.NET application
 			var xml = System.Xml.Linq.XDocument.Load(webConfig);
