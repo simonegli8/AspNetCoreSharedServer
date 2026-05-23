@@ -140,17 +140,24 @@ public class Installer
             await AddUnixGroup("www-data");
             await AddUnixUser("www-data", "www-data", GetRandomString(16));
 
-            var configpath = Path.GetDirectoryName(Configuration.Current.ConfigPath);
+            var configfile = Configuration.Current.ConfigPath;
+            var configpath = Path.GetDirectoryName(configfile);
             if (!System.IO.Directory.Exists(configpath))
             {
                 System.IO.Directory.CreateDirectory(configpath);
+                Configuration.Current.Save();
+
                 if (AllowOnlyRootToCreateApplications)
                 {
                     Unix.GrantUnixPermissions(configpath,
                         UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+                    Unix.GrantUnixPermissions(configfile,
+                        UnixFileMode.UserRead | UnixFileMode.UserWrite);
                 }
                 else
                 {
+                    Unix.GrantUnixPermissions(configfile,
+                        UnixFileMode.UserRead | UnixFileMode.UserWrite);
                     Unix.GrantUnixPermissions(configpath,
                         UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
                         UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.GroupExecute);
