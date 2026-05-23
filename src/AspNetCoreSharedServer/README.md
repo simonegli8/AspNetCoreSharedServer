@@ -12,8 +12,9 @@ Next, execute `aspnet-server install` to install the server as a service. This w
 
 
 ## Configure AspNetCoreSharedServer
-All the configuration is stored in /etc/aspnetcore/applications.json.
-When the configuration is changed, changes are applied on the fly. The applications.json file is defined as follows:
+All the configuration is stored in `/etc/aspnetcore/applications.json` a and in json files named after the application
+name in `/etc/aspnetcore`. When the configuration is changed, changes are applied on the fly. The
+applications.json file is defined as follows:
 ```json
 {
   "IdleTimeout": 300,
@@ -64,6 +65,30 @@ When the configuration is changed, changes are applied on the fly. The applicati
 - `Syslog` optional Syslog configuration.
 - `FailureLimit` number of failures within `FailureInterval` in order to disable app pool.
 - `FailureInterval` time span within to count the number of failures.
+- 
+The individual applications can also be placed in separate json files, named after the applications name like so:
+```
+{
+    "Name": "MyApp",
+    "Assembly": "/Path/To/ASPNETCoreApp.dll",
+    "Arguments": "",
+    "Urls": "http://original-domain.org",
+    "ListenUrls": "http://localhost:10000",
+    "Environment": {
+    "ASPNETCORE_ENVIRONMENT": "Production"
+    }
+    "IdleTimeout": 300,
+    "Recycle": 1200,
+    "Disabled": false,
+    "User": "www-data",
+    "Group": "www-data",
+    "Status": "Running"
+} 
+```
+This would be placed in `/etc/aspnetcore/MyApp.json`. Note that `aspnet-server install` sets the permissions of
+`/etc/aspnetcore` to user & group access and the owner & group of  `/etc/aspnetcore` to `root` & `www-data`.
+That means that any user who is a member of `www-data` can create applications. If you want only `root` to be
+able to create applications, change access to  `/etc/aspnetcore` to user only.
 
 After you have defined your applications in the applications.json file, you can proxy to the sockets specified in ListenUrls 
 from Apache or Nginx. The original Urls that Apache or Nginx serve will be passed to Kestrel as a environment varibale
