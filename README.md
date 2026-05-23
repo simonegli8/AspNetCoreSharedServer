@@ -136,10 +136,15 @@ To find a free IP port:
 var port = AspServer.FindFreePort();
 ```
 
-If you do non atomic stuff with AspServer.Configuration, you must enclose it in a mutex lock:
+If you do non atomic stuff with AspServer.Configuration, you must enclose it in a mutex lock, so always only
+one process can modify `applications.json`:
 
 ```
 using (var mutex = AspServer.Mutex) {
+    AspServer.Configuration.Load();
+
     code that manupulates AspServer.Configuration ...
+    
+    AspServer.Configuration.Save();
 }
 ```
