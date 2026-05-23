@@ -574,7 +574,10 @@ public class Configuration
 }
 public class Applications : KeyedCollection<string, Application>
 {
-    protected override string GetKeyForItem(Application item) => item.Name;
+    protected override string GetKeyForItem(Application item) {
+        if (item.Name == "applications") throw new NotSupportedException("Application name \"applications\" is reserved.");
+        return item.Name;
+    }
     public new Application this[string name]
     {
         get
