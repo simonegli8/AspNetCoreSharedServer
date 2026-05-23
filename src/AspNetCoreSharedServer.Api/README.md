@@ -86,9 +86,9 @@ The individual applications can also be placed in separate json files, named aft
 } 
 ```
 This would be placed in `/etc/aspnetcore/MyApp.json`. Note that `aspnet-server install` sets the permissions of
-`/etc/aspnetcore` to user & group access and the owner & group of  `/etc/aspnetcore` to `root` & `www-data`.
-That means that any user who is a member of `www-data` can create applications. If you want only `root` to be
-able to create applications, change access to  `/etc/aspnetcore` to user only.
+`/etc/aspnetcore` to user only access and the owner & group of  `/etc/aspnetcore` to `root` & `www-data`.
+That means that only `root` can create applications. If you want all users of group `www-data` to be
+able to create applications, change access to  `/etc/aspnetcore` to user & group.
 
 After you have defined your applications in the applications.json file, you can proxy to the sockets specified in ListenUrls 
 from Apache or Nginx. The original Urls that Apache or Nginx serve will be passed to Kestrel as a environment varibale

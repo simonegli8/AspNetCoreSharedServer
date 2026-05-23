@@ -10,6 +10,7 @@ namespace AspNetCoreSharedServer.Services;
 public class Installer
 {
     public const string ServiceId = "aspnet-server";
+    public const bool AllowOnlyRootToCreateApplications = true;
     public static Shell Shell => Shell.Standard;
     public static ILogger Log => Configuration.Current.Logger;
 
@@ -143,9 +144,17 @@ public class Installer
             if (!System.IO.Directory.Exists(configpath))
             {
                 System.IO.Directory.CreateDirectory(configpath);
-                Unix.GrantUnixPermissions(configpath,
-                    UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
-                    UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.GroupExecute);
+                if (AllowOnlyRootToCreateApplications)
+                {
+                    Unix.GrantUnixPermissions(configpath,
+                        UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+                }
+                else
+                {
+                    Unix.GrantUnixPermissions(configpath,
+                        UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
+                        UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.GroupExecute);
+                }
                 Unix.SetOwnerAndGroup(configpath, "root", "www-data");
             }
 
