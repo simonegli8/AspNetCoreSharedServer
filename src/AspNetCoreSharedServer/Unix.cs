@@ -72,7 +72,7 @@ public class Unix
     [DllImport("libc")]
     public static extern uint getuid();
 
-    public static void GrantUnixPermissions(string path, UnixFileMode mode, bool resetChildPermissions = false)
+    public static void SetFilePermissions(string path, UnixFileMode mode, bool resetChildPermissions = false)
     {
         if (!resetChildPermissions)
         {
@@ -87,7 +87,7 @@ public class Unix
         }
         else
         {
-            GrantUnixPermissions(path, mode, false);
+            SetFilePermissions(path, mode, false);
 
             foreach (var e in new DirectoryInfo(path).GetFileSystemInfos())
             {

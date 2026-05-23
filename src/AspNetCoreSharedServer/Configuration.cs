@@ -31,6 +31,7 @@ public enum Status
 }
 public class Configuration
 {
+    public const bool AllowOnlyRootToCreateApplications = true;
     public class SyslogConfiguration
     {
         [DefaultValue(null)]
@@ -58,7 +59,7 @@ public class Configuration
                 if ((OSInfo.IsLinux || OSInfo.IsMac) && !Directory.Exists(MutexDiskPath))
                 {
                     Directory.CreateDirectory(MutexDiskPath);
-                    Unix.GrantUnixPermissions("/tmp/.dotnet", (UnixFileMode)0x1ff, true);
+                    Unix.SetFilePermissions("/tmp/.dotnet", (UnixFileMode)0x1ff, true);
                 }
 
                 return mutex = new Mutex(false, MutexName);
@@ -148,9 +149,12 @@ public class Configuration
     }
 
     [JsonIgnore]
-    public string ConfigPath => OSInfo.IsWindows ?
+    public string ConfigPathOld => OSInfo.IsWindows ?
         Path.Combine(Environment.CurrentDirectory, "applications.json") :
         "/etc/aspnetcore/applications.json";
+    public string ConfigPath => OSInfo.IsWindows ? ConfigPathOld :
+        Directory.Exists("/etc/aspnetcore") ? ConfigPathOld : "/etc/aspnet-server/applications.json";
+
 #if Server
     [JsonIgnore]
     public ILogger<Worker> Logger { get; set; } = null;
@@ -192,6 +196,8 @@ public class Configuration
                 var txt = File.ReadAllText(ConfigPath);
                 config = JsonConvert.DeserializeObject<Configuration>(txt,
                     new Newtonsoft.Json.Converters.VersionConverter(), new StringEnumConverter());
+                if (config.Applications == null) config.Applications = new Applications();
+
                 foreach (var app in config.Applications) app.IsSeparateFile = false;
                 var separateConfigs = Directory.EnumerateFiles(Path.GetDirectoryName(ConfigPath), "*.json")
                     .Where(file => file != ConfigPath)
@@ -223,7 +229,7 @@ public class Configuration
     }
     public Configuration? LoadOnly()
     {
-        using (var mutex = new NamedMutex())
+        using (var mutex = Mutex)
         {
             return LoadRaw();
         }
@@ -233,7 +239,7 @@ public class Configuration
         if (loadEntered || IsShuttingDown) return; // Prevent re-entrancy
         loadEntered = true;
 
-        using (var mutex = new NamedMutex())
+        using (var mutex = Mutex)
         {
             try
             {
@@ -386,12 +392,20 @@ public class Configuration
         if (!Directory.Exists(dir))
         {
             Directory.CreateDirectory(dir);
-            Unix.GrantUnixPermissions(dir,
-                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
-                UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.GroupExecute);
+            if (AllowOnlyRootToCreateApplications)
+            {
+                Unix.SetFilePermissions(ConfigPath,
+                    UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            }
+            else
+            {
+                Unix.SetFilePermissions(ConfigPath,
+                    UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
+                    UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.GroupExecute);
+            }
         }
-
-        using (var mutex = new NamedMutex())
+         
+        using (var mutex = Mutex)
         {
             var oapps = Applications;
             var extapps = oapps.Where(app => app.IsSeparateFile).ToList();
@@ -446,7 +460,7 @@ public class Configuration
 
     public void Add(Application app)
     {
-        using (var mutex = new NamedMutex())
+        using (var mutex = Mutex)
         {
             Load();
             var oapp = Applications[app.Name];
@@ -490,7 +504,7 @@ public class Configuration
 
     public void Remove(string name)
     {
-        using (var mutex = new NamedMutex())
+        using (var mutex = Mutex)
         {
             Load();
             var app = Applications.FirstOrDefault(a => a.Name == name);

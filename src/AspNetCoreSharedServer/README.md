@@ -12,15 +12,15 @@ Next, execute `aspnet-server install` to install the server as a service. This w
 
 
 ## Configure AspNetCoreSharedServer
-All the configuration is stored in `/etc/aspnetcore/applications.json` a and in json files named after the application
-name in `/etc/aspnetcore`. When the configuration is changed, changes are applied on the fly. The
-applications.json file is defined as follows:
+All the configuration is stored in `/etc/aspnet-server/applications.json` a and in json files named after the application
+name in `/etc/aspnet-server`. When the configuration is changed, changes are applied on the fly. The
+`applications.json` file is defined as follows:
 ```json
 {
   "IdleTimeout": 300,
   "Recycle": 1200,
   "Disbled": false,
-  "User": "root",
+  "User": "www-data",
   "Group": "www-data"
   "FailureLimit": 5,
   "FailureInterval": "00:05:00",
@@ -85,10 +85,10 @@ The individual applications can also be placed in separate json files, named aft
     "Status": "Running"
 } 
 ```
-This would be placed in `/etc/aspnetcore/MyApp.json`. Note that `aspnet-server install` sets the permissions of
-`/etc/aspnetcore` to user only access and the owner & group of  `/etc/aspnetcore` to `root` & `www-data`.
+This would be placed in `/etc/aspnet-server/MyApp.json`. Note that `aspnet-server install` sets the permissions of
+`/etc/aspnet-server` to user only access and the owner & group of  `/etc/aspnet-server` to `root` & `www-data`.
 That means that only `root` can create applications. If you want all users of group `www-data` to be
-able to create applications, change access to  `/etc/aspnetcore` to user & group.
+able to create applications, change access to  `/etc/aspnet-server` to user & group.
 
 After you have defined your applications in the applications.json file, you can proxy to the sockets specified in ListenUrls 
 from Apache or Nginx. The original Urls that Apache or Nginx serve will be passed to Kestrel as a environment varibale
