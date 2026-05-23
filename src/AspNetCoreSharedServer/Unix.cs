@@ -5,6 +5,7 @@ using System.Text;
 
 namespace AspNetCoreSharedServer;
 
+
 [System.FlagsAttribute]
 public enum UnixFileMode
 {
@@ -94,6 +95,35 @@ public class Unix
                 prop.SetValue(e, mode);
                 e.Refresh();
             }
+        }
+    }
+
+    [DllImport("libc", SetLastError = true)]
+    private static extern int chown(string path, uint owner, uint group);
+
+    public static void SetOwnerAndGroup(
+        string path,
+        string username,
+        string groupName)
+    {
+        IntPtr pwdPtr = getpwnam(username);
+
+        if (pwdPtr == IntPtr.Zero)
+            throw new Exception($"User not found: {username}");
+
+        Passwd pwd = Marshal.PtrToStructure<Passwd>(pwdPtr);
+
+        IntPtr grpPtr = getgrnam(groupName);
+
+        if (grpPtr == IntPtr.Zero)
+            throw new Exception($"Group not found: {groupName}");
+
+        Group grp = Marshal.PtrToStructure<Group>(grpPtr);
+
+        if (chown(path, pwd.pw_uid, grp.gr_gid) != 0)
+        {
+            int err = Marshal.GetLastWin32Error();
+            throw new Exception($"chown failed. errno={err}");
         }
     }
 }

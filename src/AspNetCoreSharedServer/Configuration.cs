@@ -1,17 +1,13 @@
-﻿using Mono.Cecil;
-//using Mono.Unix;
-using NeoSmart.AsyncLock;
-//using Mono.Unix.Native;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Converters;
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
-using System.Runtime.InteropServices;
-using System.Xml.Linq;
+using Mono.Cecil;
+using NeoSmart.AsyncLock;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Converters;
 using AspNetCoreSharedServer.Util;
 
 namespace AspNetCoreSharedServer;
@@ -196,6 +192,17 @@ public class Configuration
                 var txt = File.ReadAllText(ConfigPath);
                 config = JsonConvert.DeserializeObject<Configuration>(txt,
                     new Newtonsoft.Json.Converters.VersionConverter(), new StringEnumConverter());
+                foreach (var app in config.Applications) app.IsSeparateFile = false;
+                var separateConfigs = Directory.EnumerateFiles(Path.GetDirectoryName(ConfigPath), "*.json")
+                    .Where(file => file != ConfigPath)
+                    .Select(file =>
+                    {
+                        var json = File.ReadAllText(file);
+                       return JsonConvert.DeserializeObject<Application>(json,
+                            new Newtonsoft.Json.Converters.VersionConverter(), new StringEnumConverter());
+                    });
+                foreach (var sconfig in separateConfigs) config.Applications.Add(sconfig);
+
 #if Server
                 Logger?.LogInformation("Loaded configuration file {ConfigPath}", ConfigPath);
 #endif
@@ -310,7 +317,7 @@ public class Configuration
                     {
                         var oapp = oldApps[oi];
                         if (oapp.Assembly != app.Assembly || oapp.Urls != app.Urls || oapp.Arguments != app.Arguments ||
-                            oapp.ListenUrls != app.ListenUrls || ((oapp.User ?? ouser) != (app.User ?? User)) || oapp.Group != app.Group ||
+                            oapp.ListenUrls != app.ListenUrls || oapp.User != app.User || oapp.Group != app.Group ||
                             !oapp.Environment.Keys.All(key => app.Environment.ContainsKey(key) && app.Environment[key] == oapp.Environment[key]) ||
                             oapp.IdleTimeout != app.IdleTimeout || oapp.Recycle != app.Recycle || (oapp.Disabled || oldDisabled) != (app.Disabled || Disabled))
                         {
@@ -320,13 +327,13 @@ public class Configuration
                                 oapp.Proxy = null;
                             }
                             app.CopyTo(oapp);
-                            if (!oapp.Disabled && !Disabled) Listen(oapp);
+                            Listen(oapp);
                         }
                         oi++;
                     }
                     else
                     {
-                        if (!app.Disabled && !Disabled) Listen(app);
+                        Listen(app);
                         Applications.Add(app);
                     }
                 }
@@ -364,13 +371,11 @@ public class Configuration
     public void Listen(Application app)
     {
 #if Server
-        if (!IsShuttingDown)
+        if (!IsShuttingDown && !app.Disabled && !Disabled)
         {
             var server = new Proxy(app);
             Task.Run(() => server.ListenAsync());
-            using var mutex = new Configuration.NamedMutex();
-            app.Status = Status.Running;
-            Configuration.Current.Save(true);
+            app.SetStatus(Status.Running, null);
         }
 #endif
     }
@@ -378,14 +383,30 @@ public class Configuration
     public void Save(bool disableWatcher = false)
     {
         var dir = Path.GetDirectoryName(ConfigPath);
-        if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
+        if (!Directory.Exists(dir))
+        {
+            Directory.CreateDirectory(dir);
+            Unix.GrantUnixPermissions(dir,
+                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
+                UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.GroupExecute);
+        }
 
         using (var mutex = new NamedMutex())
         {
-            var txt = JsonConvert.SerializeObject(this, Formatting.Indented,
+            var oapps = Applications;
+            var extapps = oapps.Where(app => app.IsSeparateFile).ToList();
+            foreach (var extapp in extapps) Applications.Remove(extapp);
+            var json = JsonConvert.SerializeObject(this, Formatting.Indented,
                 new JsonSerializerSettings { DefaultValueHandling = DefaultValueHandling.Ignore });
+            foreach (var extapp in extapps)
+            {
+                Applications.Add(extapp);
+                var extjson = JsonConvert.SerializeObject(extapp, Formatting.Indented,
+                    new JsonSerializerSettings { DefaultValueHandling = DefaultValueHandling.Ignore });
+                File.WriteAllText(Path.Combine(Path.GetDirectoryName(ConfigPath), $"{extapp.Name}.json"), extjson);
+            }
             if (watcher != null && disableWatcher) watcher.EnableRaisingEvents = false;
-            File.WriteAllText(ConfigPath, txt);
+            File.WriteAllText(ConfigPath, json);
             // If runnig as root, set permissions to read/write for root only
             if (!OSInfo.IsWindows /* && Unix.getuid() == 0 */)
             {
@@ -428,13 +449,14 @@ public class Configuration
         using (var mutex = new NamedMutex())
         {
             Load();
-            var oapp = Applications.FirstOrDefault(a => a.Name == app.Name);
+            var oapp = Applications[app.Name];
             if (oapp != null)
             {
                 if (oapp.Assembly != app.Assembly || oapp.Urls != app.Urls || oapp.Arguments != app.Arguments ||
                     oapp.ListenUrls != app.ListenUrls || oapp.User != app.User || oapp.Group != app.Group ||
                     !oapp.Environment.Keys.All(key => app.Environment.ContainsKey(key) && app.Environment[key] == oapp.Environment[key]) ||
-                    oapp.IdleTimeout != app.IdleTimeout || oapp.Recycle != app.Recycle)
+                    oapp.IdleTimeout != app.IdleTimeout || oapp.Recycle != app.Recycle ||
+                    !Disabled && (oapp.Disabled != app.Disabled))
                 {
 #if Server
                     if (oapp.Proxy != null)
@@ -500,7 +522,7 @@ public class Configuration
         var dir = Path.GetDirectoryName(ConfigPath);
         if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
 
-        watcher = new FileSystemWatcher(dir, Path.GetFileName(ConfigPath));
+        watcher = new FileSystemWatcher(dir, "*.json");
         watcher.Changed += (s, e) =>
             Load();
         watcher.EnableRaisingEvents = true;
@@ -553,6 +575,14 @@ public class Configuration
 public class Applications : KeyedCollection<string, Application>
 {
     protected override string GetKeyForItem(Application item) => item.Name;
+    public new Application this[string name]
+    {
+        get
+        {
+            if (Contains(name)) return base[name];
+            else return null;
+        }
+    }
 }
 public class Application
 {
@@ -600,7 +630,8 @@ public class Application
     [JsonIgnore]
     public Proxy? Proxy { get; set; } = null;
 #endif
-
+    [JsonIgnore]
+    public bool IsSeparateFile { get; set; } = true;
     public void CopyTo(Application app)
     {
         app.Arguments = Arguments;
@@ -627,12 +658,15 @@ public class Application
 
     internal void SetStatus(Status status, string? error, bool disable = false)
     {
-        using var mutex = new Configuration.NamedMutex();
-        if (Status != status && Error != error)
+        using var mutex = AspServer.Mutex;
+        var config = Configuration.Current.LoadOnly();
+        var app = config.Applications.FirstOrDefault(a => a.Name == Name);
+        if (app != null && app.Status != status && app.Error != error)
         {
-            Status = status; Error = error;
-            if (disable) Disabled = true;
-            Configuration.Current.Save(true);
+            bool suppressFileWatcher = disable == app.Disabled;
+            app.Status = status; app.Error = error;
+            if (disable) app.Disabled = true;
+            config.Save(suppressFileWatcher);
         }
     }
     public static IEnumerable<string> FindAssemblies(string path)
@@ -727,20 +761,18 @@ public static class AspServer
         bool wasDisabled;
         if (appId == null)
         {
-            using var mutex = new Configuration.NamedMutex();
-            wasDisabled = Configuration.Disabled;
-            Configuration.Disabled = disabled;
-            Configuration.Save(true);
-            Configuration.Disabled = wasDisabled;
+            using var mutex = Configuration.Mutex;
+            var config = Configuration.LoadOnly();
+            config.Disabled = disabled;
+            config.Save(true);
             Configuration.Load();
         }
         else
         {
             using var mutex = new Configuration.NamedMutex();
-            wasDisabled = Configuration.Applications[appId].Disabled;
-            Configuration.Applications[appId].Disabled = disabled;
-            Configuration.Save(true);
-            Configuration.Applications[appId].Disabled = wasDisabled;
+            var config = Configuration.LoadOnly();
+            config.Applications[appId].Disabled = disabled;
+            config.Save(true);
             Configuration.Load();
         }
     }
