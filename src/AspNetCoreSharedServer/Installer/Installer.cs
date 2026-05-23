@@ -11,6 +11,7 @@ public class Installer
 {
     public const string ServiceId = "aspnet-server";
     public const bool AllowOnlyRootToCreateApplications = Configuration.AllowOnlyRootToCreateApplications;
+    public const string WwwData = Configuration.WwwData;
     public static Shell Shell => Shell.Standard;
     public static ILogger Log => Configuration.Current.Logger;
 
@@ -78,7 +79,7 @@ public class Installer
             shell.Input.WriteLine(password);
             shell.Input.WriteLine(password);
 
-            if (user == "www-data")
+            if (user == WwwData)
             {
                 if (!Directory.Exists("/var/www/.dotnet"))
                 {
@@ -137,8 +138,8 @@ public class Installer
     {
         if (!File.Exists(Configuration.Current.ConfigPath))
         {
-            await AddUnixGroup("www-data");
-            await AddUnixUser("www-data", "www-data", GetRandomString(16));
+            await AddUnixGroup(WwwData);
+            await AddUnixUser(WwwData, WwwData, GetRandomString(16));
 
             var configfile = Configuration.Current.ConfigPath;
             var configpath = Path.GetDirectoryName(configfile);
@@ -162,7 +163,7 @@ public class Installer
                         UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
                         UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.GroupExecute);
                 }
-                Unix.SetOwnerAndGroup(configpath, "root", "www-data");
+                Unix.SetOwnerAndGroup(configpath, "root", WwwData);
             }
 
             var conf = Configuration.Current;
@@ -172,7 +173,7 @@ public class Installer
                 {
                     conf = conf.LoadOnly();
                     conf.EnableHttp3 = false;
-                    conf.User = "www-data";
+                    conf.User = WwwData;
                     conf.IdleTimeout = TimeSpan.FromMinutes(5);
                     conf.Recycle = TimeSpan.FromHours(29);
                     conf.Group = null;

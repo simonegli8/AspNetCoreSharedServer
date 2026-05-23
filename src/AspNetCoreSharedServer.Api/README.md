@@ -88,7 +88,7 @@ The individual applications can also be placed in separate json files, named aft
 This would be placed in `/etc/aspnet-server/MyApp.json`. Note that `aspnet-server install` sets the permissions of
 `/etc/aspnet-server` to user only access and the owner & group of  `/etc/aspnet-server` to `root` & `www-data`.
 That means that only `root` can create applications. If you want all users of group `www-data` to be
-able to create applications, change access to  `/etc/aspnet-server` to user & group.
+able to create applications, change access to  `/etc/aspnet-server` to user & group write and execute.
 
 After you have defined your applications in the applications.json file, you can proxy to the sockets specified in ListenUrls 
 from Apache or Nginx. The original Urls that Apache or Nginx serve will be passed to Kestrel as a environment varibale

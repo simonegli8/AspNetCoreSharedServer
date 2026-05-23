@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Mono.Cecil.Cil;
+using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -98,6 +99,17 @@ public class Unix
         }
     }
 
+    public static UnixFileMode GetFilePermissions(string path)
+    {
+        FileSystemInfo info;
+        if (File.Exists(path)) info = new FileInfo(path);
+        else if (Directory.Exists(path)) info = new DirectoryInfo(path);
+        else throw new FileNotFoundException(path);
+
+        var prop = info.GetType().GetProperty("UnixFileMode", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+        return (UnixFileMode)prop.GetValue(info)!;
+    }
+
     [DllImport("libc", SetLastError = true)]
     private static extern int chown(string path, uint owner, uint group);
 
@@ -125,5 +137,67 @@ public class Unix
             int err = Marshal.GetLastWin32Error();
             throw new Exception($"chown failed. errno={err}");
         }
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    struct Stat
+    {
+        public ulong st_dev;
+        public ulong st_ino;
+        public ulong st_nlink;
+        public uint st_mode;
+        public uint st_uid;
+        public uint st_gid;
+        public uint __pad0;
+        public ulong st_rdev;
+        public long st_size;
+        public long st_blksize;
+        public long st_blocks;
+        public long st_atime;
+        public ulong st_atime_nsec;
+        public long st_mtime;
+        public ulong st_mtime_nsec;
+        public long st_ctime;
+        public ulong st_ctime_nsec;
+        public long __unused0;
+        public long __unused1;
+        public long __unused2;
+    }
+
+    [DllImport("libc", SetLastError = true)]
+    static extern int stat(string path, out Stat buf);
+
+    [DllImport("libc")]
+    static extern IntPtr getpwuid(uint uid);
+
+    [DllImport("libc")]
+    static extern IntPtr getgrgid(uint gid);
+
+    public static (string Owner, string Group) GetOwnerAndGroup(string path)
+    {
+        if (stat(path, out var statBuf) != 0)
+        {
+            throw new System.ComponentModel.Win32Exception(
+                Marshal.GetLastWin32Error());
+        }
+
+        string owner = statBuf.st_uid.ToString();
+        string group = statBuf.st_gid.ToString();
+
+        IntPtr pwdPtr = getpwuid(statBuf.st_uid);
+        if (pwdPtr != IntPtr.Zero)
+        {
+            var pwd = Marshal.PtrToStructure<Passwd>(pwdPtr);
+            owner = Marshal.PtrToStringAnsi(pwd.pw_name)!;
+        }
+
+        IntPtr grpPtr = getgrgid(statBuf.st_gid);
+        if (grpPtr != IntPtr.Zero)
+        {
+            var grp = Marshal.PtrToStructure<Group>(grpPtr);
+            group = Marshal.PtrToStringAnsi(grp.gr_name)!;
+        }
+
+        return (owner, group);
     }
 }

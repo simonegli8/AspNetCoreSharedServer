@@ -32,6 +32,7 @@ public enum Status
 public class Configuration
 {
     public const bool AllowOnlyRootToCreateApplications = true;
+    public const string WwwData = "www-data";
     public class SyslogConfiguration
     {
         [DefaultValue(null)]
@@ -49,6 +50,7 @@ public class Configuration
 
         static Mutex? mutex = null;
         static AsyncLock Lock = new AsyncLock();
+        [JsonIgnore]
         static Mutex Mutex
         {
             get
@@ -153,13 +155,14 @@ public class Configuration
         Path.Combine(Environment.CurrentDirectory, "applications.json") :
         "/etc/aspnetcore/applications.json";
     public string ConfigPath => OSInfo.IsWindows ? ConfigPathOld :
-        Directory.Exists("/etc/aspnetcore") ? ConfigPathOld : "/etc/aspnet-server/applications.json";
+        "/etc/aspnet-server/configuration.json";
 
 #if Server
     [JsonIgnore]
     public ILogger<Worker> Logger { get; set; } = null;
 #endif
-    public Applications Applications { get; set; } = new Applications();
+    [DefaultValue(null)]
+    public Applications? Applications { get; set; } = new Applications();
     public readonly static TimeSpan GlobalIdleTimeout = TimeSpan.FromMinutes(20);
     public readonly static TimeSpan GlobalRecycle = TimeSpan.FromHours(29);
     public TimeSpan? IdleTimeout { get; set; } = GlobalIdleTimeout;
@@ -187,6 +190,15 @@ public class Configuration
     public NamedMutex Mutex => new NamedMutex();
     private Configuration? LoadRaw()
     {
+        // import old config path /etc/aspnetcore if it exists to /etc/aspnet-server
+        if (File.Exists(ConfigPathOld))
+        {
+            var path = Path.GetDirectoryName(ConfigPath);
+            if (!Directory.Exists(path)) Directory.CreateDirectory(path);
+            File.Copy(ConfigPathOld, ConfigPath, true);
+            Directory.Delete(Path.GetDirectoryName(ConfigPathOld), true);
+        }
+
         Configuration? config = null;
         if (File.Exists(ConfigPath))
         {
@@ -194,23 +206,71 @@ public class Configuration
             try
             {
                 var txt = File.ReadAllText(ConfigPath);
-                config = JsonConvert.DeserializeObject<Configuration>(txt,
-                    new Newtonsoft.Json.Converters.VersionConverter(), new StringEnumConverter());
+                try
+                {
+                    config = JsonConvert.DeserializeObject<Configuration>(txt,
+                        new Newtonsoft.Json.Converters.VersionConverter(), new StringEnumConverter());
+                }
+                catch (JsonException ex)
+                {
+#if Server
+                    Logger.LogError(ex, $"Error parsing {Path.GetFileName(ConfigPath)}; {ex.Message}");
+#endif
+                    return null;
+                }
                 if (config.Applications == null) config.Applications = new Applications();
 
                 foreach (var app in config.Applications) app.IsSeparateFile = false;
+                bool hasError = false;
                 var separateConfigs = Directory.EnumerateFiles(Path.GetDirectoryName(ConfigPath), "*.json")
                     .Where(file => file != ConfigPath)
                     .Select(file =>
                     {
                         var json = File.ReadAllText(file);
-                       return JsonConvert.DeserializeObject<Application>(json,
-                            new Newtonsoft.Json.Converters.VersionConverter(), new StringEnumConverter());
+                        if (string.IsNullOrEmpty(json)) return null;
+                        Application app;
+                        try
+                        {
+                            app = JsonConvert.DeserializeObject<Application>(json,
+                                new Newtonsoft.Json.Converters.VersionConverter(), new StringEnumConverter());
+                        } catch (JsonException ex)
+                        {
+#if Server
+                            Logger.LogError(ex, $"Error parsing {Path.GetFileName(file)}; {ex.Message}");
+#endif
+                            return null;
+                        }
+                        app.IsSeparateFile = true;
+                        var fileMode = Unix.GetFilePermissions(file);
+                        var owner = Unix.GetOwnerAndGroup(file).Owner;
+                        if ((owner != (app.User ?? config.User) ||
+                            fileMode.HasFlag(UnixFileMode.GroupWrite) ||
+                            fileMode.HasFlag(UnixFileMode.OtherWrite)))
+                        {
+                            // Retry loading app after one second, in case owner and mode of a freshly created file
+                            // has not yet been set. (The file might have been created by Api's Save method).
+                            if (!app.Disabled && !app.IsReloading &&
+                                (DateTime.Now - File.GetCreationTime(file) < TimeSpan.FromSeconds(5))) {
+                                app.IsReloading = true;
+                                Task.Run(async () =>
+                                {
+                                    await Task.Delay(1000);
+                                    app.Disabled = false;
+                                    Load();
+                                    app.IsReloading = false;
+                                });
+                            }
+                            app.Disabled = true;
+                            app.Status = Status.Error;
+                            app.Error = $"The app json file {Path.GetFileName(file)} has a different owner than the app's User, or is writable by group or other. It must be writable only by it's owner, and must be owned by the same user specified in it's User json property.";
+                            hasError = true;
+                        }
+                        return app;
                     });
                 foreach (var sconfig in separateConfigs) config.Applications.Add(sconfig);
-
+                if (hasError) Save(true);
 #if Server
-                Logger?.LogInformation("Loaded configuration file {ConfigPath}", ConfigPath);
+                Logger?.LogInformation($"Loaded configuration file {ConfigPath}");
 #endif
             }
             catch (Exception ex)
@@ -410,14 +470,19 @@ public class Configuration
             var oapps = Applications;
             var extapps = oapps.Where(app => app.IsSeparateFile).ToList();
             foreach (var extapp in extapps) Applications.Remove(extapp);
+            if (oapps.Count == 0) Applications = null;
             var json = JsonConvert.SerializeObject(this, Formatting.Indented,
                 new JsonSerializerSettings { DefaultValueHandling = DefaultValueHandling.Ignore });
+            if (Applications == null) Applications = new Applications();
             foreach (var extapp in extapps)
             {
-                Applications.Add(extapp);
+                Applications.Add(extapp); // re-add app to Applications
                 var extjson = JsonConvert.SerializeObject(extapp, Formatting.Indented,
                     new JsonSerializerSettings { DefaultValueHandling = DefaultValueHandling.Ignore });
-                File.WriteAllText(Path.Combine(Path.GetDirectoryName(ConfigPath), $"{extapp.Name}.json"), extjson);
+                var file = Path.Combine(Path.GetDirectoryName(ConfigPath), $"{extapp.Name}.json");
+                File.WriteAllText(Path.Combine(Path.GetDirectoryName(ConfigPath), file), extjson);
+                Unix.SetOwnerAndGroup(file, extapp.User, WwwData);
+                Unix.SetFilePermissions(file, UnixFileMode.UserRead | UnixFileMode.UserWrite);
             }
             if (watcher != null && disableWatcher) watcher.EnableRaisingEvents = false;
             File.WriteAllText(ConfigPath, json);
@@ -660,6 +725,7 @@ public class Application
 #endif
     [JsonIgnore]
     public bool IsSeparateFile { get; set; } = true;
+    internal bool IsReloading = false;
     public void CopyTo(Application app)
     {
         app.Arguments = Arguments;
