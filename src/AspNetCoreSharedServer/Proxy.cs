@@ -31,21 +31,23 @@ public class Proxy
     public TimeSpan FailureInterval => Configuration.Current.FailureInterval;
     public int FailureLimit => Configuration.Current.FailureLimit;
 
-    public void Fail()
+    public bool Fail()
     {
         bool shutdown = false;
         lock (Lock)
         {
             var now = DateTime.UtcNow;
-            while (now - Failures.Peek() > FailureInterval) Failures.Dequeue();
             Failures.Enqueue(now);
+            while (now - Failures.Peek() > FailureInterval) Failures.Dequeue();
             shutdown = Failures.Count > FailureLimit;
         }
         if (shutdown)
         {
             Shutdown();
             Application.SetStatus(Status.Error, "Too many rapid failures of the app pool.", true);
+            return true;
         }
+        return false;
     }
     public ILogger Logger => Configuration.Current.Logger;
 
@@ -141,81 +143,84 @@ public class Proxy
         bool exception = false;
         try
         {
-            if (EnableHttp3)
+            do
             {
-                if (httpPort > -1) QuicHttp = new UdpClient(httpPort);
-                if (httpsPort > -1) QuicHttps = new UdpClient(httpsPort);
-            }
-
-            Task? t1 = null, t2 = null, t3 = null, t4 = null;
-            if (HasHttp)
-            {
-                IPAddress? ip;
-                List<IPAddress> ips = new List<IPAddress>();
-                if (httpUri.Host == "0.0.0.0") ips.Add(IPAddress.Any);
-                else if (httpUri.Host == "[::]") ips.Add(IPAddress.IPv6Any);
-                else if (httpUri.Host == "127.0.0.1") ips.Add(IPAddress.Loopback);
-                else if (httpUri.Host == "[::1]") ips.Add(IPAddress.IPv6Loopback);
-                else if (IPAddress.TryParse(httpUri.Host, out ip)) ips.Add(ip);
-                else
+                if (EnableHttp3)
                 {
-                    ips.AddRange((await Dns.GetHostAddressesAsync(httpUri.Host))
-                        .Distinct());
+                    if (httpPort > -1) QuicHttp = new UdpClient(httpPort);
+                    if (httpsPort > -1) QuicHttps = new UdpClient(httpsPort);
                 }
-                if (!ips.Any()) ips = new List<IPAddress>() { IPAddress.Any, IPAddress.IPv6Any };
-                Http.Clear();
-                foreach (var ipadr in ips) Http.Add(new TcpListener(ipadr, httpPort));
 
-                t1 = ListenAsync(Http, server => server.HttpDest());
-            }
-            if (HasHttps)
-            {
-                IPAddress? ip;
-                List<IPAddress> ips = new List<IPAddress>();
-                if (httpsUri.Host == "0.0.0.0") ips.Add(IPAddress.Any);
-                else if (httpsUri.Host == "[::]") ips.Add(IPAddress.IPv6Any);
-                else if (httpsUri.Host == "127.0.0.1") ips.Add(IPAddress.Loopback);
-                else if (httpsUri.Host == "[::1]") ips.Add(IPAddress.IPv6Loopback);
-                else if (IPAddress.TryParse(httpsUri.Host, out ip)) ips.Add(ip);
-                else
+                Task? t1 = null, t2 = null, t3 = null, t4 = null;
+                if (HasHttp)
                 {
-                    ips.AddRange((await Dns.GetHostAddressesAsync(httpsUri.Host))
-                        .Distinct());
-                }
-                if (!ips.Any()) ips = new List<IPAddress>() { IPAddress.Any, IPAddress.IPv6Any };
-                Https.Clear();
-                foreach (var ipadr in ips) Https.Add(new TcpListener(ipadr, httpsPort));
+                    IPAddress? ip;
+                    List<IPAddress> ips = new List<IPAddress>();
+                    if (httpUri.Host == "0.0.0.0") ips.Add(IPAddress.Any);
+                    else if (httpUri.Host == "[::]") ips.Add(IPAddress.IPv6Any);
+                    else if (httpUri.Host == "127.0.0.1") ips.Add(IPAddress.Loopback);
+                    else if (httpUri.Host == "[::1]") ips.Add(IPAddress.IPv6Loopback);
+                    else if (IPAddress.TryParse(httpUri.Host, out ip)) ips.Add(ip);
+                    else
+                    {
+                        ips.AddRange((await Dns.GetHostAddressesAsync(httpUri.Host))
+                            .Distinct());
+                    }
+                    if (!ips.Any()) ips = new List<IPAddress>() { IPAddress.Any, IPAddress.IPv6Any };
+                    Http.Clear();
+                    foreach (var ipadr in ips) Http.Add(new TcpListener(ipadr, httpPort));
 
-                t2 = ListenAsync(Https, server => server.HttpsDest());
-            }
-            if (HasNetTcp)
-            {
-                IPAddress? ip;
-                List<IPAddress> ips = new List<IPAddress>();
-                if (nettcpUri.Host == "0.0.0.0") ips.Add(IPAddress.Any);
-                else if (nettcpUri.Host == "[::]") ips.Add(IPAddress.IPv6Any);
-                else if (nettcpUri.Host == "127.0.0.1") ips.Add(IPAddress.Loopback);
-                else if (nettcpUri.Host == "[::1]") ips.Add(IPAddress.IPv6Loopback);
-                else if (IPAddress.TryParse(nettcpUri.Host, out ip)) ips.Add(ip);
-                else
+                    t1 = ListenAsync(Http, server => server.HttpDest());
+                }
+                if (HasHttps)
                 {
-                    ips.AddRange((await Dns.GetHostAddressesAsync(nettcpUri.Host))
-                        .Distinct());
+                    IPAddress? ip;
+                    List<IPAddress> ips = new List<IPAddress>();
+                    if (httpsUri.Host == "0.0.0.0") ips.Add(IPAddress.Any);
+                    else if (httpsUri.Host == "[::]") ips.Add(IPAddress.IPv6Any);
+                    else if (httpsUri.Host == "127.0.0.1") ips.Add(IPAddress.Loopback);
+                    else if (httpsUri.Host == "[::1]") ips.Add(IPAddress.IPv6Loopback);
+                    else if (IPAddress.TryParse(httpsUri.Host, out ip)) ips.Add(ip);
+                    else
+                    {
+                        ips.AddRange((await Dns.GetHostAddressesAsync(httpsUri.Host))
+                            .Distinct());
+                    }
+                    if (!ips.Any()) ips = new List<IPAddress>() { IPAddress.Any, IPAddress.IPv6Any };
+                    Https.Clear();
+                    foreach (var ipadr in ips) Https.Add(new TcpListener(ipadr, httpsPort));
+
+                    t2 = ListenAsync(Https, server => server.HttpsDest());
                 }
-                if (!ips.Any()) ips = new List<IPAddress>() { IPAddress.Any, IPAddress.IPv6Any };
-                NetTcp.Clear();
-                foreach (var ipadr in ips) NetTcp.Add(new TcpListener(ipadr, nettcpPort));
+                if (HasNetTcp)
+                {
+                    IPAddress? ip;
+                    List<IPAddress> ips = new List<IPAddress>();
+                    if (nettcpUri.Host == "0.0.0.0") ips.Add(IPAddress.Any);
+                    else if (nettcpUri.Host == "[::]") ips.Add(IPAddress.IPv6Any);
+                    else if (nettcpUri.Host == "127.0.0.1") ips.Add(IPAddress.Loopback);
+                    else if (nettcpUri.Host == "[::1]") ips.Add(IPAddress.IPv6Loopback);
+                    else if (IPAddress.TryParse(nettcpUri.Host, out ip)) ips.Add(ip);
+                    else
+                    {
+                        ips.AddRange((await Dns.GetHostAddressesAsync(nettcpUri.Host))
+                            .Distinct());
+                    }
+                    if (!ips.Any()) ips = new List<IPAddress>() { IPAddress.Any, IPAddress.IPv6Any };
+                    NetTcp.Clear();
+                    foreach (var ipadr in ips) NetTcp.Add(new TcpListener(ipadr, nettcpPort));
 
-                t1 = ListenAsync(NetTcp, server => server.NetTcpDest());
-            }
-            if (QuicHttp != null) t3 = ListenAsync(QuicHttp, server => server.QuicHttpDest);
-            if (QuicHttps != null) t4 = ListenAsync(QuicHttps, server => server.QuicHttpsDest);
+                    t1 = ListenAsync(NetTcp, server => server.NetTcpDest());
+                }
+                if (QuicHttp != null) t3 = ListenAsync(QuicHttp, server => server.QuicHttpDest);
+                if (QuicHttps != null) t4 = ListenAsync(QuicHttps, server => server.QuicHttpsDest);
 
-            var tasks = new Task?[] { t1, t2, t3, t4 }
-                .Where(t => t != null)
-                .Select(t => t!)
-                .ToArray();
-            await Task.WhenAll(tasks);
+                var tasks = new Task?[] { t1, t2, t3, t4 }
+                    .Where(t => t != null)
+                    .Select(t => t!)
+                    .ToArray();
+                await Task.WhenAll(tasks);
+            } while (!Cancel.IsCancellationRequested);
         }
         catch (OperationCanceledException ex)
         {
@@ -236,36 +241,41 @@ public class Proxy
         }
         finally
         {
-            if (!exception)
+            /*if (!exception)
             {
                 Server = StartServer();
                 Logger.LogInformation($"{Application.Name} started listening on {ListenUrls}");
-            }
+            }*/
         }
     }
     public void Shutdown()
     {
+        Logger.LogInformation($"Shutdown {Application.Name}.");
+
         lock (this)
         {
+            Cancel.Cancel(); // Cancel the main listening loop
             if (Server != null)
             {
                 Server.Shutdown();
             }
-            Task.Run(async () =>
-            {
-                await Task.Delay(10000);
-                Cancel.Cancel(); // Cancel the main listening loop
-            });
         }
     }
 
     public Server StartServer()
     {
-        lock (this)
+        using var mylock = Lock.Lock();
+        if (!Cancel.IsCancellationRequested)
         {
-            if (Server == null) Server = new Server(this);
-            return Server;
+                
+            if (Server == null)
+            {
+                Server = new Server(this);
+                Server.CheckStarted();
+                //Debug.WriteLine($"Started server {Server.ProcessId} for {Application.Name}");
+            }
         }
+        return Server;
     }
     public async Task ListenAsync(List<TcpListener> sources, Func<Server, Task<TcpClient>> destination)
     {
@@ -289,8 +299,18 @@ public class Proxy
             try
             {
                 var client = await source.AcceptTcpClientAsync(Cancel.Token);
-                var server = StartServer();
-                var task = server.CopyAsync(client, await destination(server));
+                if (!Cancel.IsCancellationRequested)
+                {
+                    var server = StartServer();
+                    if (server != null && !Cancel.IsCancellationRequested)
+                    {
+                        var task = server.CopyAsync(client, await destination(server), Cancel);
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                if (Cancel.IsCancellationRequested) break;
             }
             catch (SocketException ex)
             {
@@ -298,41 +318,67 @@ public class Proxy
                 Application.SetStatus(Status.Error, $"Socket error while accepting TCP client {ex}", true);
             }
         }
+        source.Stop();
+        //Logger.LogInformation($"{Application.Name}: Listening stopped.");
     }
     public async Task ListenAsync(UdpClient source, Func<Server, UdpClient> getDestination)
     {
         UdpClient destination = null;
         Server server = null;
-        while (!Cancel.IsCancellationRequested && server?.Cancel.IsCancellationRequested != true)
+        try
         {
-            var packet = await source.ReceiveAsync();
-            if (destination == null)
+            while (!Cancel.IsCancellationRequested)
             {
-                lock (this)
+                try
                 {
-                    if (Server == null) Server = new Server(this);
-                    server = Server;
-                }
-                destination = getDestination(server);
-                lock (this)
-                {
-                    if (Server == null) Server = new Server(this);
-                    server = Server;
-                }
-                Task.Run(async () =>
-                {
-                    while (!Cancel.IsCancellationRequested && !server.Cancel.IsCancellationRequested)
+                    var packet = await source.ReceiveAsync(Cancel.Token);
+                    if (destination == null)
                     {
-                        var packet = await destination.ReceiveAsync();
-                        await source.SendAsync(packet.Buffer, packet.Buffer.Length);
+                        server = StartServer();
+                        if (server != null)
+                        {
+                            destination = getDestination(server);
+                            /*lock (this)
+                            {
+                                if (!Cancel.IsCancellationRequested)
+                                {
+                                    if (Server == null) Server = new Server(this);
+                                }
+                                server = Server;
+                            }*/
+                            _ = Task.Run(async () =>
+                            {
+                                while (!Cancel.IsCancellationRequested)
+                                {
+                                    try {
+                                        var packet = await destination.ReceiveAsync(Cancel.Token);
+                                        await source.SendAsync(new ReadOnlyMemory<byte>(packet.Buffer, 0, packet.Buffer.Length), Cancel.Token);
+                                    } catch { break; }
+                                }
+                            });
+                            await destination.SendAsync(new ReadOnlyMemory<byte>(packet.Buffer, 0, packet.Buffer.Length), Cancel.Token);
+                            while (!Cancel.IsCancellationRequested)
+                            {
+                                try {
+                                    var packet2 = await source.ReceiveAsync(Cancel.Token);
+                                    await destination.SendAsync(new ReadOnlyMemory<byte>(packet2.Buffer, 0, packet2.Buffer.Length), Cancel.Token);
+                                } catch { break; }
+                            }
+                        }
                     }
-                });
-                while (!Cancel.IsCancellationRequested && !server.Cancel.IsCancellationRequested)
+                }
+                catch (OperationCanceledException)
                 {
-                    var packet2 = await source.ReceiveAsync();
-                    await destination.SendAsync(packet2.Buffer, packet2.Buffer.Length);
+                    if (Cancel.IsCancellationRequested) break;
                 }
             }
+        }
+        finally
+        {
+            source.Close();
+            destination?.Close();
+            source.Dispose();
+            destination?.Dispose();
         }
     }
 }

@@ -74,7 +74,7 @@ public class Server
 	public IPAddress Loopback => IsDotnet ? IPAddress.IPv6Loopback : IPAddress.Loopback;
 	public string LoopbackText => IsDotnet ? "[::1]" : "127.0.0.1";
 	Process ? ServerProcess;
-	public CancellationTokenSource Cancel = new CancellationTokenSource();
+	//public CancellationTokenSource Cancel = new CancellationTokenSource();
 
 	static object UidLock = new();
 	public static IEnumerable<string> Paths
@@ -158,6 +158,7 @@ public class Server
 		if (!File.Exists(Application.Assembly))
 		{
 			Logger.LogError($"Assembly {Application.Assembly} not found.");
+			Application.SetStatus(Status.Error, $"Assembly not found.", true);
 			return;
 		}
 
@@ -193,7 +194,8 @@ public class Server
 				if (userrec == null)
 				{
 					Logger.LogError($"User {user} not found.");
-					return;
+                    Application.SetStatus(Status.Error, $"User {user} not found.", true);
+                    return;
 				} else
 				{
 					var rec= Marshal.PtrToStructure<Unix.Passwd>(userrec);
@@ -203,7 +205,8 @@ public class Server
 				if (!string.IsNullOrEmpty(group) && grouprec == null)
 				{
 					Logger.LogError($"Group {group} not found.");
-					return;
+                    Application.SetStatus(Status.Error, $"Group {group} not found.", true);
+                    return;
 				} else if (grouprec != null)
 				{
 					var rec = Marshal.PtrToStructure<Unix.Group>(grouprec);
@@ -250,8 +253,12 @@ public class Server
 		info.UseShellExecute = false;
 		info.WindowStyle = ProcessWindowStyle.Normal;
 		Logger.LogInformation($"{(!string.IsNullOrEmpty(user) ? user : "")}>{info.FileName} {info.Arguments}");
+        ServerProcess = new Process();
+		ServerProcess.StartInfo = info;
+        ServerProcess.EnableRaisingEvents = true;
+        ServerProcess?.Exited += (sender, args) => OnExit();
 
-		if (gid != null || uid != null)
+        if (gid != null || uid != null)
 		{
 			lock (Configuration.Current)
 			{
@@ -259,67 +266,91 @@ public class Server
 				if (gid != null && Unix.setegid(gid.Value) != 0 || uid != null && Unix.seteuid(uid.Value) != 0)
 				{
 					Logger.LogError("Failed to switch user/group (need to run as root).");
-					return;
+                    Application.SetStatus(Status.Error, $"Failed to switch user/group (need to run as root).", true);
+                    return;
 				}
 
-				ServerProcess = Process.Start(info);
+				ServerProcess.Start();
+				Debug.WriteLine($"Started process {ServerProcess.Id} for {Proxy.Application.Name}");
 
-				// Revert to root
-				if ((gid != null || uid != null) && (Unix.setegid(0) != 0 || Unix.seteuid(0) != 0))
+                // Revert to root
+                if ((gid != null || uid != null) && (Unix.setegid(0) != 0 || Unix.seteuid(0) != 0))
 				{
 					Logger.LogError("Failed to switch back to root.");
-					return;
+                    Application.SetStatus(Status.Error, $"Failed to switch back to root.", true);
+                    return;
 				}
 			}
 		}
 		else
 		{
-			ServerProcess = Process.Start(info);
-		}
-
-		ServerProcess?.Exited += (sender, args) =>
-		{
-			if (!shuttingDown) Proxy.Fail();
-			Application.SetStatus(Status.Stopped, null);
-		};
+			ServerProcess.Start();
+			Debug.WriteLine($"Started process {ServerProcess.Id} for {Proxy.Application.Name}");
+        }
 
 		Ticks = DateTime.Now.ToBinary();
-
-		if (ServerProcess.HasExited)
-		{
-            Proxy.Fail();
-            Logger.LogError($"{Application.Name}: Failed to start application.");
-			Application.SetStatus(Status.Error, "Failed to start application.\"", true);
-		}
         
 		if (Proxy.Recycle != null || Proxy.IdleTimeout != null ||
 		Proxy.Recycle != TimeSpan.Zero || Proxy.IdleTimeout != TimeSpan.Zero)
-		Task.Run(async () => await CheckTimeout());
+		_ = Task.Run(async () => await CheckTimeout());
 	}
-	bool shuttingDown = false;
-	public void Shutdown()
+
+	private void OnExit()
 	{
-		Logger.LogInformation($"Shutting down {Application.Name}.");
+        bool fail = false;
+        if (!shuttingDown)
+        {
+            fail = Proxy.Fail();
+        }// else Application.SetStatus(Status.Stopped, null);
+        using (Proxy.Lock.Lock()) Proxy.Server = null;
+    }
 
-		if (ServerProcess != null)
-		{
-			shuttingDown = true;
-			Application.SetStatus(Status.Stopping, null);
-
-			if (!ServerProcess.HasExited) SignalSender.SendSigint(ServerProcess); // Send SIGINT to gracefully stop Kestrel
-			ServerProcess = null;
-
-			using (Proxy.Lock.Lock()) Proxy.Server = null; // Clear the server reference to prevent further processing
-			
-			Task.Run(async () =>
-			{
-				await Task.Delay(10000);
-				Cancel.Cancel();
-			});
+    public void CheckStarted()
+	{
+        if (ServerProcess.HasExited)
+        {
+            Proxy?.Server = null;
+            Proxy.Fail();
+            Logger.LogError($"{Application.Name}: Failed to start application.");
+            Application.SetStatus(Status.Error, "Failed to start application.", true);
         }
     }
 
-    public async Task CheckTimeout()
+    bool shuttingDown = false;
+	public void Shutdown()
+	{
+		//Logger.LogInformation($"Shutting down {Application.Name}.");
+		if (ServerProcess != null)
+		{
+			shuttingDown = true;
+			if (!ServerProcess.HasExited)
+			{
+                Application.SetStatus(Status.Stopping, null);
+                SignalSender.SendSigint(ServerProcess); // Send SIGINT to gracefully stop Kestrel
+			}
+			else
+			{
+				//Application.SetStatus(Status.Stopped, null);
+			}
+
+			using (Proxy.Lock.Lock()) Proxy.Server = null; // Clear the server reference to prevent further processing
+
+			var timeout = TimeSpan.FromMinutes(1); 
+			var start = DateTime.Now;
+			do
+			{
+				Thread.Sleep(200);
+			} while (!ServerProcess.HasExited || DateTime.Now - start < timeout);
+			
+			if (!ServerProcess.HasExited) ServerProcess.Kill();
+
+			Proxy.Cancel.Cancel();
+        }
+    }
+
+	public int ProcessId => ServerProcess?.Id ?? 0;
+
+	public async Task CheckTimeout()
 	{
 		do
 		{
@@ -337,37 +368,38 @@ public class Server
 					Proxy.StartServer();
 				}
 				return;
-			} else if (ServerProcess != null && ServerProcess.HasExited && !shuttingDown) // If Kestrel has stopped, restart it
-			{
-				KestrelRestarts++;
-				if (KestrelRestarts > MaxKestrelRestarts)
-				{
-					Logger.LogError($"Kestrel has exited too many times ({KestrelRestarts}), giving up on restarting.");
-					Shutdown();
-					return;
-				}
-				else
-				{
-					Proxy.Server = null;
-					Proxy.StartServer();
-				}
 			}
-			await Task.Delay(5000);
-		} while (Proxy.Cancel.IsCancellationRequested == false);
-		
-		if (Proxy.Cancel.IsCancellationRequested) Shutdown();
+			else {
+				/*if (ServerProcess != null && ServerProcess.HasExited)
+				{
+					using (Proxy.Lock.Lock()) Proxy.Server = null;
+					if (!shuttingDown && !Proxy.Fail())
+					{
+						//Proxy.StartServer();
+					}
+				}*/
+			}
+			await Task.Delay(1000);
+		} while (!Proxy.Cancel.IsCancellationRequested);
+
+		/*if (Proxy.Cancel.IsCancellationRequested)
+		{
+            Logger.LogInformation($"Shutdown {Application.Name}.");
+            Shutdown();
+		}*/
 	}
-	public async Task CopyAsync(TcpClient source, TcpClient destination)
+	public async Task CopyAsync(TcpClient source, TcpClient destination, CancellationTokenSource cancel)
 	{
 		if (source == null || destination == null) return;
 
-		using (var srcStream = source.GetStream())
+        var cts = new CancellationTokenSource();
+        using (var srcStream = source.GetStream())
 		using (var destStream = destination.GetStream())
+		using (var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancel.Token, cts.Token))
 		{
 			// 3) Start bi‑directional copy tasks
-			var cts = new CancellationTokenSource();
-			var t1 = Pump(srcStream, destStream, cts.Token); // client → server
-			var t2 = Pump(destStream, srcStream, cts.Token); // server → client
+			var t1 = Pump(srcStream, destStream, linkedCts.Token); // client → server
+			var t2 = Pump(destStream, srcStream, linkedCts.Token); // server → client
 
 			await Task.WhenAny(t1, t2);
 			cts.Cancel();

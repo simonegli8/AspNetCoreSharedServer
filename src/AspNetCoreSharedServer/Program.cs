@@ -2,6 +2,7 @@ using AspNetCoreSharedServer.Log;
 using AspNetCoreSharedServer.Services;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Converters;
+using System.Diagnostics;
 using System.Net.Sockets;
 using System.Reflection;
 
@@ -18,6 +19,14 @@ public class Program
     {
         try
         {
+            if (args.Contains("-debug", StringComparer.OrdinalIgnoreCase))
+            {
+                args = args.Where(arg => !arg.Equals("-debug", StringComparison.OrdinalIgnoreCase))
+                    .ToArray();
+                Console.WriteLine("Please attach debugger...");
+                while (!Debugger.IsAttached) Thread.Sleep(200);
+                Debugger.Break();
+            }
             if (args.Contains("-v", StringComparer.OrdinalIgnoreCase) ||
                 args.Contains("version", StringComparer.OrdinalIgnoreCase))
             {
@@ -124,10 +133,32 @@ possible values for argument:
 
         PrintVersion();
 
-        var config = Configuration.Current;
-        config = config.LoadOnly();
+        Configuration config = Configuration.Current;
+        try
+        {
+            config = config.LoadOnly(false);
+        }
+        catch (Exception e) { }
 
-        var builder = Host.CreateApplicationBuilder(args);
+        var settings = new HostApplicationBuilderSettings
+        {
+            DisableDefaults = true,
+            Args = args
+        };
+
+        var builder = Host.CreateApplicationBuilder(settings);
+
+        builder.Configuration.AddJsonFile(
+            "appsettings.json",
+            optional: true,
+            reloadOnChange: false);
+
+        builder.Logging.AddConfiguration(
+            builder.Configuration.GetSection("Logging"));
+
+        builder.Logging.AddConsole();
+
+        // var builder = Host.CreateApplicationBuilder(args);
         if (config.Syslog != null)
         {
             builder.Logging.AddProvider(
@@ -138,7 +169,7 @@ possible values for argument:
         try
         {
             var host = builder.Build();
-            host.Run();
+            await host.RunAsync();
             Console.WriteLine("Exit");
         }
         catch (Exception ex)

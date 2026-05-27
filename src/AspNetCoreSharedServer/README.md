@@ -12,9 +12,9 @@ Next, execute `aspnet-server install` to install the server as a service. This w
 
 
 ## Configure AspNetCoreSharedServer
-All the configuration is stored in `/etc/aspnet-server/applications.json` a and in json files named after the application
+All the configuration is stored in `/etc/aspnet-server/configuration.json` a and in json files named after the application
 name in `/etc/aspnet-server`. When the configuration is changed, changes are applied on the fly. The
-`applications.json` file is defined as follows:
+`configuration.json` file is defined as follows:
 ```json
 {
   "IdleTimeout": 300,
@@ -90,11 +90,11 @@ This would be placed in `/etc/aspnet-server/MyApp.json`. Note that `aspnet-serve
 That means that only `root` can create applications. If you want all users of group `www-data` to be
 able to create applications, change access to  `/etc/aspnet-server` to user & group write and execute.
 
-After you have defined your applications in the applications.json file, you can proxy to the sockets specified in ListenUrls 
+After you have defined your applications in the configuration.json file, you can proxy to the sockets specified in ListenUrls 
 from Apache or Nginx. The original Urls that Apache or Nginx serve will be passed to Kestrel as a environment varibale
-ORIGINAL_URLS from the Urls parameter in applications.json.
+ORIGINAL_URLS from the Urls parameter in configuration.json.
 
-You can also manage the applications.json file programmatically by using AspNetCoreSharedServer.Api:
+You can also manage the configuration.json file programmatically by using AspNetCoreSharedServer.Api:
 Import AspNetCoreSharedServer.Api via nuget to your project.
 
 ```
@@ -137,7 +137,7 @@ var port = AspServer.FindFreePort();
 ```
 
 If you do non atomic stuff with AspServer.Configuration, you must enclose it in a mutex lock, so always only
-one process can modify `applications.json`:
+one process can modify `configuration.json`:
 
 ```
 using (var mutex = AspServer.Mutex) {

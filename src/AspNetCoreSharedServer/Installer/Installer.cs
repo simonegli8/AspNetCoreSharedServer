@@ -169,15 +169,15 @@ public class Installer
             var conf = Configuration.Current;
             try
             {
-                using (var mutex = new Configuration.NamedMutex())
+                using (var mutex = Configuration.Mutex)
                 {
-                    conf = conf.LoadOnly();
+                    conf = conf.LoadOnly(true, false);
                     conf.EnableHttp3 = false;
                     conf.User = WwwData;
                     conf.IdleTimeout = TimeSpan.FromMinutes(5);
                     conf.Recycle = TimeSpan.FromHours(29);
                     conf.Group = null;
-                    conf.Save();
+                    conf.Save(false, false);
                 }
             }
             catch (Exception ex)

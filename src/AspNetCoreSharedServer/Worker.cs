@@ -18,19 +18,13 @@ namespace AspNetCoreSharedServer
             lifetime.ApplicationStopping.Register(() =>
             {
                 //Logger.LogInformation("Application is stopping...");
-                Configuration.Current.IsShuttingDown = true;
-				var apps = Configuration.Current.Applications.ToList();
-                foreach (var app in apps)
-                {
-                    if (app.Proxy != null) app.Proxy.Shutdown();
-				}
+                Configuration.Current.Shutdown();
 			});
 		}
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
             var args = Environment.GetCommandLineArgs();
-
 
             Configuration.Current.Logger = Logger;
             Configuration.Current.Watch();
@@ -39,9 +33,7 @@ namespace AspNetCoreSharedServer
             stoppingToken.Register(() => tcs.TrySetResult());
 
             await tcs.Task;
-
             Logger.LogInformation("End of Worker");
-            Configuration.Current.Shutdown();
-		}
+        }
     }
 }
