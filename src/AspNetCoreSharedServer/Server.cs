@@ -271,7 +271,6 @@ public class Server
 				}
 
 				ServerProcess.Start();
-				Debug.WriteLine($"Started process {ServerProcess.Id} for {Proxy.Application.Name}");
 
                 // Revert to root
                 if ((gid != null || uid != null) && (Unix.setegid(0) != 0 || Unix.seteuid(0) != 0))
@@ -285,7 +284,6 @@ public class Server
 		else
 		{
 			ServerProcess.Start();
-			Debug.WriteLine($"Started process {ServerProcess.Id} for {Proxy.Application.Name}");
         }
 
 		Ticks = DateTime.Now.ToBinary();
