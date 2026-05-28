@@ -1,5 +1,5 @@
 SET PackageVersion=2.0.1
-SET Configuration=Debug
+SET Configuration=Release
 
 del src\AspNetCoreSharedServer\bin\%Configuration%\*.nupkg
 del src\AspNetCoreSharedServer.Api\bin\%Configuration%\*.nupkg
