@@ -33,7 +33,7 @@ namespace AspNetCoreSharedServer
             stoppingToken.Register(() => tcs.TrySetResult());
 
             await tcs.Task;
-            Logger.LogInformation("End of Worker");
+            //Logger.LogInformation("End of Worker");
         }
     }
 }

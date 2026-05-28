@@ -333,7 +333,7 @@ public class Configuration
             try
             {
                 var config = LoadRaw();
-    #if Server
+#if Server
                 if (config.Command == Command.Shutdown)
                 {
                     // remove Shutdown command from config
@@ -364,9 +364,12 @@ public class Configuration
                 EnableHttp3 = config.EnableHttp3;
                 var ouser = User;
                 User = config.User;
+                Group = config.Group;
                 var oldDisabled = Disabled;
                 Disabled = config.Disabled;
                 Syslog = config.Syslog;
+                FailureInterval = config.FailureInterval;
+                FailureLimit = config.FailureLimit;
                 Command = Command.None;
 
                 var oldApps = Applications
@@ -425,15 +428,15 @@ public class Configuration
                                 oapp.Proxy.Shutdown();
                                 oapp.Proxy = null;
                             }
-                            Listen(app);
                             app.CopyTo(oapp);
+                            Listen(app);
                         }
                         oi++;
                     }
                     else
                     {
-                        Listen(app);
                         Applications.Add(app);
+                        Listen(app);
                     }
                 }
 
@@ -451,13 +454,18 @@ public class Configuration
 
                 if (!File.Exists(ConfigPath)) Save(true, false);
                 else SaveIfDirty(true, false);
-    #else
-				    IdleTimeout = config.IdleTimeout;
-				    Recycle = config.Recycle;
-				    EnableHttp3 = config.EnableHttp3;
-				    Applications = config.Applications;
-				    User = config.User;
-				    Disabled = config.Disabled;
+#else
+                IdleTimeout = config.IdleTimeout;
+				Recycle = config.Recycle;
+				EnableHttp3 = config.EnableHttp3;
+				Applications = config.Applications;
+				User = config.User;
+                Group = config.Group;
+                Command = Command.None;
+                FailureInterval = config.FailureInterval;
+                FailureLimit = config.FailureLimit;
+                Syslog = config.Syslog;
+                Disabled = config.Disabled;
     #endif
             }
             finally
@@ -485,10 +493,10 @@ public class Configuration
                 {
                     await server.ListenAsync();
                 }
-                catch { }
-                app.SetStatus(Status.Stopped, null);
+                catch (Exception ex) { }
+                app.SetStatus(Status.Stopped, null, false, false);
             });
-            app.SetStatus(Status.Running, null);
+            app.SetStatus(Status.Running, null, false, false);
         }
 #endif
     }
@@ -855,10 +863,11 @@ public class Application
 #endif
     }
 
-    internal void SetStatus(Status status, string? error, bool disable = false)
+    internal void SetStatus(Status status, string? error, bool disable = false, bool load = true)
     {
         using var mutex = AspServer.Mutex;
-        var config = Configuration.Current.LoadOnly(true, false);
+        if (load) Configuration.Current.Load(false);
+        var config = Configuration.Current;
         var app = config.Applications[Name];
         if (app != null && (app.Status != status || app.Error != error))
         {
@@ -870,7 +879,7 @@ public class Application
                 app.Disabled = true;
             }
             config.Save(true, false);
-            if (disableChanged) config.Load(false);
+            if (disableChanged && load) Configuration.Current.Load(false);
         }
     }
     public static IEnumerable<string> FindAssemblies(string path)

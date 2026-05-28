@@ -76,6 +76,19 @@ public class Program
             }
             if (args.Contains("disable", StringComparer.OrdinalIgnoreCase))
             {
+                var stopped = () => Installer.ServiceController.Info(Installer.ServiceId)?.Status == OSServiceStatus.Stopped;
+                if (!stopped()) {
+                    Installer.ServiceController.Stop(Installer.ServiceId);
+                    if (stopped())
+                    {
+                        Console.WriteLine("aspnet-server stopped");
+                    }
+                    else
+                    {
+                        Console.WriteLine("Failed to stop aspnet-server");
+                        return;
+                    }
+                }
                 Installer.ServiceController.Disable(Installer.ServiceId);
                 Console.WriteLine("aspnet-server disabled");
                 return;
@@ -170,7 +183,7 @@ possible values for argument:
         {
             var host = builder.Build();
             await host.RunAsync();
-            Console.WriteLine("Exit");
+            //Console.WriteLine("Exit");
         }
         catch (Exception ex)
         {
