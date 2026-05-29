@@ -136,6 +136,46 @@ public class Installer
 
     public static async Task Install()
     {
+        // Remove old aspnetcore-shared-server
+        if (!File.Exists(Configuration.Current.ConfigPathOld))
+        {
+            // import old config path /etc/aspnetcore if it exists to /etc/aspnet-server
+            var path = Path.GetDirectoryName(Configuration.Current.ConfigPath);
+            if (!System.IO.Directory.Exists(path))
+            {
+                System.IO.Directory.CreateDirectory(path);
+                if (!OSInfo.IsWindows) Unix.SetFilePermissions(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            }
+            File.Copy(Configuration.Current.ConfigPathOld, Configuration.Current.ConfigPath, true);
+            if (!OSInfo.IsWindows) Unix.SetFilePermissions(Configuration.Current.ConfigPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+
+            System.IO.Directory.Delete(Path.GetDirectoryName(Configuration.Current.ConfigPathOld), true);
+
+            var oldname = "aspnetcore-shared-server";
+            var oldservice = ServiceController.Info(oldname);
+            if (oldservice != null)
+            {
+                ServiceController.Stop(oldservice.Id);
+                ServiceController.Disable(oldservice.Id);
+                ServiceController.Remove(oldservice.Id);
+            }
+
+            var exe = Shell.Find(oldname);
+            if (exe != null) File.WriteAllText(exe, $"#!/bin/sh\necho \"{oldname} has been removed, use aspnet-server instead.\"");
+            
+            oldname = "aspnet-shared-server";
+            oldservice = ServiceController.Info(oldname);
+            if (oldservice != null)
+            {
+                ServiceController.Stop(oldservice.Id);
+                ServiceController.Disable(oldservice.Id);
+                ServiceController.Remove(oldservice.Id);
+            }
+
+            exe = Shell.Find(oldname);
+            if (exe != null) File.WriteAllText(exe, $"#!/bin/sh\necho \"{oldname} has been removed, use aspnet-server instead.\"");
+        }
+
         if (!File.Exists(Configuration.Current.ConfigPath))
         {
             await AddUnixGroup(WwwData);

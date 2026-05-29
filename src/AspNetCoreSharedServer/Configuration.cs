@@ -236,6 +236,12 @@ public class Configuration
 #endif
                     return null;
                 }
+                if (config == null)
+                {
+                    config = new Configuration();
+                    config.Save(true, false);
+                }
+
                 if (config.Applications == null) config.Applications = new Applications();
 
                 foreach (var app in config.Applications)
@@ -773,15 +779,18 @@ public class Applications : KeyedCollection<string, Application>
     protected override string GetKeyForItem(Application item)
     {
         if (item.Name == "configuration") throw new NotSupportedException("Application name \"configuration\" is reserved.");
+        if (item.Name == "applications") throw new NotSupportedException("Application name \"applications\" is reserved.");
         return item.Name;
     }
     protected override void InsertItem(int index, Application item)
     {
         if (item.Name == "configuration") throw new NotSupportedException("Application name \"configuration\" is reserved.");
+        if (item.Name == "applications") throw new NotSupportedException("Application name \"applications\" is reserved.");
         base.InsertItem(index, item);
     }
     protected override void SetItem(int index, Application item)
     {
+        if (item.Name == "configuration") throw new NotSupportedException("Application name \"configuration\" is reserved.");
         if (item.Name == "applications") throw new NotSupportedException("Application name \"applications\" is reserved.");
         base.SetItem(index, item);
     }
