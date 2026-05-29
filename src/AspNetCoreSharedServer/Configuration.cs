@@ -206,8 +206,14 @@ public class Configuration
         if (File.Exists(ConfigPathOld))
         {
             var path = Path.GetDirectoryName(ConfigPath);
-            if (!Directory.Exists(path)) Directory.CreateDirectory(path);
+            if (!Directory.Exists(path))
+            {
+                Directory.CreateDirectory(path);
+                if (!OSInfo.IsWindows) Unix.SetFilePermissions(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            }
             File.Copy(ConfigPathOld, ConfigPath, true);
+            if (!OSInfo.IsWindows) Unix.SetFilePermissions(ConfigPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+
             Directory.Delete(Path.GetDirectoryName(ConfigPathOld), true);
         }
 
@@ -242,7 +248,7 @@ public class Configuration
                 {
                     bool hasError = false;
                     var separateConfigs = Directory.EnumerateFiles(Path.GetDirectoryName(ConfigPath), "*.json")
-                        .Where(file => file != ConfigPath)
+                        .Where(file => file != ConfigPath && file != ConfigPathOld)
                         .Select(file =>
                         {
                             var json = File.ReadAllText(file);
