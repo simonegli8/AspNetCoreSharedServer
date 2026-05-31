@@ -254,11 +254,11 @@ public class Proxy
 
         lock (this)
         {
-            Cancel.Cancel(); // Cancel the main listening loop
             if (Server != null)
             {
                 Server.Shutdown();
             }
+            Cancel.Cancel(); // Cancel the main listening loop
         }
     }
 
