@@ -49,27 +49,81 @@ public class Program
                 }
                 if (args[0].Equals("start", StringComparison.OrdinalIgnoreCase))
                 {
-                    Installer.ServiceController.Start(Installer.ServiceId);
-                    if (Installer.ServiceController.Info(Installer.ServiceId)?.Status == OSServiceStatus.Running)
+                    if (args.Length == 1)
                     {
-                        Console.WriteLine("aspnet-server started");
+                        Installer.ServiceController.Start(Installer.ServiceId);
+                        if (Installer.ServiceController.Info(Installer.ServiceId)?.Status == OSServiceStatus.Running)
+                        {
+                            Console.WriteLine("aspnet-server started");
+                        }
+                        else
+                        {
+                            Console.WriteLine("Failed to start aspnet-server");
+                        }
                     }
                     else
                     {
-                        Console.WriteLine("Failed to start aspnet-server");
+                        var apppool = args[1];
+                        using var mutex = AspServer.Mutex;
+                        try
+                        {
+                            var conf = AspServer.Configuration.LoadRaw();
+                            var app = conf.Applications[apppool];
+                            if (app == null)
+                            {
+                                Console.WriteLine($"Application pool {apppool} not found.");
+                            }
+                            else
+                            {
+                                app.Disabled = false;
+                                conf.Save(false, false);
+                                Console.WriteLine($"Started {apppool} application pool.");
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"Error starting application pool: {ex.Message}");
+                        }
                     }
                     return;
                 }
                 if (args[0].Equals("stop", StringComparison.OrdinalIgnoreCase))
                 {
-                    Installer.ServiceController.Stop(Installer.ServiceId);
-                    if (Installer.ServiceController.Info(Installer.ServiceId)?.Status == OSServiceStatus.Stopped)
+                    if (args.Length == 1)
                     {
-                        Console.WriteLine("aspnet-server stopped");
+                        Installer.ServiceController.Stop(Installer.ServiceId);
+                        if (Installer.ServiceController.Info(Installer.ServiceId)?.Status == OSServiceStatus.Stopped)
+                        {
+                            Console.WriteLine("aspnet-server stopped");
+                        }
+                        else
+                        {
+                            Console.WriteLine("Failed to stop aspnet-server");
+                        }
                     }
                     else
                     {
-                        Console.WriteLine("Failed to stop aspnet-server");
+                        var apppool = args[1];
+                        using var mutex = AspServer.Mutex;
+                        try
+                        {
+                            var conf = AspServer.Configuration.LoadRaw();
+                            var app = conf.Applications[apppool];
+                            if (app == null)
+                            {
+                                Console.WriteLine($"Application pool {apppool} not found.");
+                            }
+                            else
+                            {
+                                app.Disabled = true;
+                                conf.Save(false, false);
+                                Console.WriteLine($"Stopped {apppool} application pool.");
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"Error stopping application pool: {ex.Message}");
+                        }
                     }
                     return;
                 }
@@ -102,21 +156,100 @@ public class Program
 
                 if (args[0].Equals("restart", StringComparison.OrdinalIgnoreCase))
                 {
-                    Installer.ServiceController.Restart(Installer.ServiceId);
-                    if (Installer.ServiceController.Info(Installer.ServiceId)?.Status == OSServiceStatus.Running)
+                    if (args.Length == 1)
                     {
-                        Console.WriteLine("aspnet-server restarted");
+                        Installer.ServiceController.Restart(Installer.ServiceId);
+                        if (Installer.ServiceController.Info(Installer.ServiceId)?.Status == OSServiceStatus.Running)
+                        {
+                            Console.WriteLine("aspnet-server restarted");
+                        }
+                        else
+                        {
+                            Console.WriteLine("Failed to restart aspnet-server");
+                        }
                     }
                     else
                     {
-                        Console.WriteLine("Failed to restart aspnet-server");
+                        var apppool = args[1];
+                        using (var mutex = AspServer.Mutex)
+                        {
+                            try
+                            {
+                                var conf = AspServer.Configuration.LoadRaw();
+                                var app = conf.Applications[apppool];
+                                if (app == null)
+                                {
+                                    Console.WriteLine($"Application pool {apppool} not found.");
+                                    return;
+                                }
+                                else
+                                {
+                                    app.Disabled = false;
+                                    conf.Save(false, false);
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                Console.WriteLine($"Error stopping application pool: {ex.Message}");
+                            }
+                        }
+                        Thread.Sleep(200);
+                        using (var mutex = AspServer.Mutex)
+                        {
+                            try
+                            {
+                                var conf = AspServer.Configuration.LoadRaw();
+                                var app = conf.Applications[apppool];
+                                if (app == null)
+                                {
+                                    Console.WriteLine($"Application pool {apppool} not found.");
+                                }
+                                else
+                                {
+                                    app.Disabled = false;
+                                    conf.Save(false, false);
+                                    Console.WriteLine($"Restarted {apppool} application pool.");
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                Console.WriteLine($"Error starting application pool: {ex.Message}");
+                            }
+                        }
+                        return;
                     }
-                    return;
                 }
+
                 if (args[0].Equals("status", StringComparison.OrdinalIgnoreCase))
                 {
-                    var info = Installer.ServiceController.Info(Installer.ServiceId);
-                    Console.WriteLine(info.Status.ToString());
+                    if (args.Length == 1)
+                    {
+                        var info = Installer.ServiceController.Info(Installer.ServiceId);
+                        Console.WriteLine(info.Status.ToString());
+                    }
+                    else
+                    {
+                        var apppool = args[1];
+                        using var mutex = AspServer.Mutex;
+                        try
+                        {
+                            var conf = AspServer.Configuration.LoadRaw();
+                            var app = conf.Applications[apppool];
+                            if (app == null)
+                            {
+                                Console.WriteLine($"Application pool {apppool} not found.");
+                            }
+                            else
+                            {
+                                Console.WriteLine($"Application pool {apppool} is {app.Status}.");
+                                if (!string.IsNullOrEmpty(app.Error)) Console.WriteLine($"Error: {app.Error}");
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"Error fetching application pool status: {ex.Message}");
+                        }
+                    }
                     return;
                 }
 
@@ -132,12 +265,12 @@ possible values for argument:
 - install: Installs the server as a system service on Systemd 
   Linux or OpenRC Linux or macOS.
 - uninstall: Uninstalls the system service.
-- start: Starts the system service.
-- stop: Stops the system service.
-- restart: Restarts the system service.
+- start: Starts the system service, or the application pool if argument2 is specified.
+- stop: Stops the system service, or the application pool if argument2 is specified.
+- restart: Restarts the system service, or the application pool if argument2 is specified.
 - enable: Enables the system service.
 - disable: Disables the system service.
-- status: Shows the status of the service:");
+- status: Shows the status of the service, or the application pool if argument2 is specified.:");
                 return;
             }
         }

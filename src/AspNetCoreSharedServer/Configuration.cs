@@ -200,7 +200,7 @@ public class Configuration
 
     [JsonIgnore]
     public static NamedMutex Mutex => new NamedMutex();
-    private Configuration? LoadRaw(bool loadApps = true)
+    internal Configuration? LoadRaw(bool loadApps = true)
     {
         // import old config path /etc/aspnetcore if it exists to /etc/aspnet-server
         if (File.Exists(ConfigPathOld))
