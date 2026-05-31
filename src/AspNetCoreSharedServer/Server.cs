@@ -315,7 +315,7 @@ public class Server
     }
 
     bool shuttingDown = false;
-	public void Shutdown()
+	public void Shutdown(bool setStatus = true)
 	{
 		//Logger.LogInformation($"Shutting down {Application.Name}.");
 		if (ServerProcess != null)
@@ -323,7 +323,7 @@ public class Server
 			shuttingDown = true;
 			if (!ServerProcess.HasExited)
 			{
-                Application.SetStatus(Status.Stopping, null);
+                if (setStatus) Application.SetStatus(Status.Stopping, null);
                 SignalSender.SendSigint(ServerProcess); // Send SIGINT to gracefully stop Kestrel
 			}
 			else
@@ -359,7 +359,7 @@ public class Server
 				now - Started > Proxy.Recycle)
 			{
 				Logger.LogInformation($"Shutdown {Application.Name}.");
-				Shutdown();
+				Shutdown(false);
 				if (Proxy.IdleTimeout == TimeSpan.Zero)
 				{
 					// Immediately restart when IdleTimeout is set to zero

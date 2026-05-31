@@ -504,9 +504,10 @@ public class Configuration
                 try
                 {
                     await server.ListenAsync();
+                    app.SetStatus(Status.Stopped, null, false, false);
                 }
-                catch (Exception ex) { }
-                app.SetStatus(Status.Stopped, null, false, false);
+                catch (Exception ex) {
+                }
             });
             app.SetStatus(Status.Running, null, false, false);
         }
