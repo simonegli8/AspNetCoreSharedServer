@@ -19,6 +19,8 @@ public class Program
     {
         try
         {
+            if (args.Length > 0 && args[0].EndsWith(".dll", StringComparison.OrdinalIgnoreCase)) args = args.Skip(1).ToArray();
+
             if (args.Contains("-debug", StringComparer.OrdinalIgnoreCase))
             {
                 args = args.Where(arg => !arg.Equals("-debug", StringComparison.OrdinalIgnoreCase))
@@ -27,101 +29,102 @@ public class Program
                 while (!Debugger.IsAttached) Thread.Sleep(200);
                 Debugger.Break();
             }
-            if (args.Contains("-v", StringComparer.OrdinalIgnoreCase) ||
-                args.Contains("version", StringComparer.OrdinalIgnoreCase))
+            if (args.Length > 0)
             {
-                PrintVersion();
-                return;
-            }
-            if (args.Contains("install", StringComparer.OrdinalIgnoreCase))
-            {
-                await Installer.Install();
-                return;
-            }
-            if (args.Contains("uninstall", StringComparer.OrdinalIgnoreCase))
-            {
-                await Installer.Uninstall();
-                return;
-            }
-            if (args.Contains("start", StringComparer.OrdinalIgnoreCase))
-            {
-                Installer.ServiceController.Start(Installer.ServiceId);
-                if (Installer.ServiceController.Info(Installer.ServiceId)?.Status == OSServiceStatus.Running)
+                if (args[0].Equals("-v", StringComparison.OrdinalIgnoreCase) ||
+                    args[0].Equals("version", StringComparison.OrdinalIgnoreCase))
                 {
-                    Console.WriteLine("aspnet-server started");
-                } else
-                {
-                    Console.WriteLine("Failed to start aspnet-server");
+                    PrintVersion();
+                    return;
                 }
-                return;
-            }
-            if (args.Contains("stop", StringComparer.OrdinalIgnoreCase))
-            {
-                Installer.ServiceController.Stop(Installer.ServiceId);
-                if (Installer.ServiceController.Info(Installer.ServiceId)?.Status == OSServiceStatus.Stopped)
+                if (args[0].Equals("install", StringComparison.OrdinalIgnoreCase))
                 {
-                    Console.WriteLine("aspnet-server stopped");
+                    await Installer.Install();
+                    return;
                 }
-                else
+                if (args[0].Equals("uninstall", StringComparison.OrdinalIgnoreCase))
                 {
-                    Console.WriteLine("Failed to stop aspnet-server");
+                    await Installer.Uninstall();
+                    return;
                 }
-                return;
-            }
-            if (args.Contains("enable", StringComparer.OrdinalIgnoreCase))
-            {
-                Installer.ServiceController.Enable(Installer.ServiceId);
-                Console.WriteLine("aspnet-server enabled");
-                return;
-            }
-            if (args.Contains("disable", StringComparer.OrdinalIgnoreCase))
-            {
-                var stopped = () => Installer.ServiceController.Info(Installer.ServiceId)?.Status == OSServiceStatus.Stopped;
-                if (!stopped()) {
+                if (args[0].Equals("start", StringComparison.OrdinalIgnoreCase))
+                {
+                    Installer.ServiceController.Start(Installer.ServiceId);
+                    if (Installer.ServiceController.Info(Installer.ServiceId)?.Status == OSServiceStatus.Running)
+                    {
+                        Console.WriteLine("aspnet-server started");
+                    }
+                    else
+                    {
+                        Console.WriteLine("Failed to start aspnet-server");
+                    }
+                    return;
+                }
+                if (args[0].Equals("stop", StringComparison.OrdinalIgnoreCase))
+                {
                     Installer.ServiceController.Stop(Installer.ServiceId);
-                    if (stopped())
+                    if (Installer.ServiceController.Info(Installer.ServiceId)?.Status == OSServiceStatus.Stopped)
                     {
                         Console.WriteLine("aspnet-server stopped");
                     }
                     else
                     {
                         Console.WriteLine("Failed to stop aspnet-server");
-                        return;
                     }
+                    return;
                 }
-                Installer.ServiceController.Disable(Installer.ServiceId);
-                Console.WriteLine("aspnet-server disabled");
-                return;
-            }
+                if (args[0].Equals("enable", StringComparison.OrdinalIgnoreCase))
+                {
+                    Installer.ServiceController.Enable(Installer.ServiceId);
+                    Console.WriteLine("aspnet-server enabled");
+                    return;
+                }
+                if (args[0].Equals("disable", StringComparison.OrdinalIgnoreCase))
+                {
+                    var stopped = () => Installer.ServiceController.Info(Installer.ServiceId)?.Status == OSServiceStatus.Stopped;
+                    if (!stopped())
+                    {
+                        Installer.ServiceController.Stop(Installer.ServiceId);
+                        if (stopped())
+                        {
+                            Console.WriteLine("aspnet-server stopped");
+                        }
+                        else
+                        {
+                            Console.WriteLine("Failed to stop aspnet-server");
+                            return;
+                        }
+                    }
+                    Installer.ServiceController.Disable(Installer.ServiceId);
+                    Console.WriteLine("aspnet-server disabled");
+                    return;
+                }
 
-            if (args.Contains("restart", StringComparer.OrdinalIgnoreCase))
-            {
-                Installer.ServiceController.Restart(Installer.ServiceId);
-                if (Installer.ServiceController.Info(Installer.ServiceId)?.Status == OSServiceStatus.Running)
+                if (args[0].Equals("restart", StringComparison.OrdinalIgnoreCase))
                 {
-                    Console.WriteLine("aspnet-server restarted");
+                    Installer.ServiceController.Restart(Installer.ServiceId);
+                    if (Installer.ServiceController.Info(Installer.ServiceId)?.Status == OSServiceStatus.Running)
+                    {
+                        Console.WriteLine("aspnet-server restarted");
+                    }
+                    else
+                    {
+                        Console.WriteLine("Failed to restart aspnet-server");
+                    }
+                    return;
                 }
-                else
+                if (args[0].Equals("status", StringComparison.OrdinalIgnoreCase))
                 {
-                    Console.WriteLine("Failed to restart aspnet-server");
+                    var info = Installer.ServiceController.Info(Installer.ServiceId);
+                    Console.WriteLine(info.Status.ToString());
+                    return;
                 }
-                return;
-            }
-            if (args.Contains("status", StringComparer.OrdinalIgnoreCase))
-            {
-                var info = Installer.ServiceController.Info(Installer.ServiceId);
-                Console.WriteLine(info.Status.ToString());
-                return;
-            }
-            if (args.Any(a => a.Contains("help")) || args.Any(a => a.Contains("?")) ||
-                args.Length == 1 && !args[0].EndsWith(".dll", StringComparison.OrdinalIgnoreCase) ||
-                args.Length > 1)
-            {
+
                 PrintVersion();
                 Console.WriteLine(@"
 aspnet-server usage:
 
-aspnet-server argument
+aspnet-server argument [argument2]
 
 possible values for argument:
 - No argument: Start the server normally.

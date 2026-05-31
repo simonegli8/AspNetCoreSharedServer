@@ -1,8 +1,7 @@
 SET PackageVersion=2.0.5
 SET Configuration=Release
 
-del src\AspNetCoreSharedServer\bin\%Configuration%\*.nupkg
-del src\AspNetCoreSharedServer.Api\bin\%Configuration%\*.nupkg
-del src\AspNetCoreSharedServer.Library\bin\%Configuration%\*.nupkg
+del nupkg\*.nupkg
+del nupkg\*.snupkg
 
-dotnet pack src\AspNetCoreSharedServer.slnx -c %Configuration%
+dotnet pack src\AspNetCoreSharedServer.slnx -c %Configuration% -p:Version=%PackageVersion% -p:FileVersion=%PackageVersion% -p:AssemblyVersion=%PackageVersion%
