@@ -209,7 +209,7 @@ public class Installer
             var conf = Configuration.Current;
             try
             {
-                using (var mutex = Configuration.Mutex)
+                using (var mutex = await Configuration.LockAsync())
                 {
                     conf = conf.LoadOnly(true, false);
                     conf.EnableHttp3 = false;
@@ -217,7 +217,7 @@ public class Installer
                     conf.IdleTimeout = TimeSpan.FromMinutes(5);
                     conf.Recycle = TimeSpan.FromHours(29);
                     conf.Group = null;
-                    conf.Save(false, false);
+                    await conf.SaveAsync(false, false);
                 }
             }
             catch (Exception ex)

@@ -24,6 +24,8 @@ name in `/etc/aspnet-server`. When the configuration is changed, changes are app
   "Group": "www-data"
   "FailureLimit": 5,
   "FailureInterval": "00:05:00",
+  "MemoryLowThreshold": 0.95,
+  "IdleTimeoutOnLowMemory": "00:01:00"
   "Syslog": {
     "Host": "localhost",
     "Port": 514,

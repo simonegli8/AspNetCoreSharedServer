@@ -82,6 +82,9 @@
         <Compile Include="..\AspNetCoreSharedServer\Log\SyslogLoggerProvider.cs">
             <Link>Log\SyslogLoggerProvider.cs</Link>
         </Compile>
+        <Compile Include="..\AspNetCoreSharedServer\AsyncProcessLock.cs">
+            <Link>AsyncProcessLock.cs</Link>
+        </Compile>
     </ItemGroup>
     
     <ItemGroup>
@@ -101,5 +104,6 @@
 		<PackageReference Include="NeoSmart.AsyncLock" Version="3.2.1" />
         <PackageReference Include="plist-cil" Version="2.3.1" />
         <PackageReference Include="SyslogNet.ClientStandard" Version="0.3.4" />
+        <PackageReference Include="Hardware.Info" Version="110.0.0.1" />
     </ItemGroup>
 </Project>

@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 
 namespace AspNetCoreSharedServer;
@@ -31,10 +32,10 @@ public class Proxy
     public TimeSpan FailureInterval => Configuration.Current.FailureInterval;
     public int FailureLimit => Configuration.Current.FailureLimit;
 
-    public bool Fail()
+    public async Task<bool> FailAsync()
     {
         bool shutdown = false;
-        lock (Lock)
+        using (await Lock.LockAsync())
         {
             var now = DateTime.UtcNow;
             Failures.Enqueue(now);
@@ -43,12 +44,13 @@ public class Proxy
         }
         if (shutdown)
         {
-            Shutdown();
-            Application.SetStatus(Status.Error, "Too many rapid failures of the app pool.", true);
+            await ShutdownAsync(false);
+            await Application.SetStatusAsync(Status.Error, "Too many rapid failures of the app pool.", true);
             return true;
         }
         return false;
     }
+
     public ILogger Logger => Configuration.Current.Logger;
 
     public List<TcpListener> Http = new List<TcpListener>(), Https = new List<TcpListener>(),
@@ -69,7 +71,10 @@ public class Proxy
         IdleTimeout = app.IdleTimeout ?? Configuration.Current.IdleTimeout ?? Configuration.GlobalIdleTimeout;
         Recycle = app.Recycle ?? Configuration.Current.Recycle ?? Configuration.GlobalRecycle;
         EnableHttp3 = app.EnableHttp3 ?? EnableHttp3;
+    }
 
+    public async Task ListenAsync()
+    {
         List<string> actualurls = new List<string>();
 
         foreach (var url in ListenUrls.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
@@ -96,7 +101,7 @@ public class Proxy
         {
             if (httpUri.Port == 0)
             {
-                httpPort = Configuration.FindFreePort();
+                httpPort = await Configuration.FindFreePortAsync();
                 actualurls.Add($"http://{httpUri.Host}:{httpPort}");
             }
             else
@@ -110,7 +115,7 @@ public class Proxy
         {
             if (httpsUri.Port == 0)
             {
-                httpsPort = Configuration.FindFreePort();
+                httpsPort = await Configuration.FindFreePortAsync();
                 actualurls.Add($"https://{httpsUri.Host}:{httpsPort}");
             }
             else
@@ -124,7 +129,7 @@ public class Proxy
         {
             if (nettcpUri.Port == 0)
             {
-                nettcpPort = Configuration.FindFreePort();
+                nettcpPort = await Configuration.FindFreePortAsync();
                 actualurls.Add($"nettcp://{nettcpUri.Host}:{nettcpPort}");
             }
             else
@@ -136,10 +141,9 @@ public class Proxy
 
         Application.ListenUrls = ListenUrls = string.Join(";", actualurls);
 
-        Configuration.Current.SaveIfDirty(true);
-    }
-    public async Task ListenAsync()
-    {
+        await Configuration.Current.SaveIfDirtyAsync(true);
+
+
         bool exception = false;
         try
         {
@@ -229,14 +233,14 @@ public class Proxy
         {
             Logger.LogError(ex, $"{Application.Name}: Socket error while starting server");
             exception = true;
-            Application.SetStatus(Status.Error, $"Socket error while starting server {ex}", true);
+            await Application.SetStatusAsync(Status.Error, $"Socket error while starting server {ex}", true);
             throw;
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, $"{Application.Name}: Error while starting server");
             exception = true;
-            Application.SetStatus(Status.Error, $"Error while starting server {ex}", true);
+            await Application.SetStatusAsync(Status.Error, $"Error while starting server {ex}", true);
             throw;
         }
         finally
@@ -248,30 +252,43 @@ public class Proxy
             }*/
         }
     }
-    public void Shutdown()
-    {
-        Logger.LogInformation($"Shutdown {Application.Name}.");
 
-        lock (this)
+    public async Task DetachAsync()
+    {
+        using var mylock = await Lock.LockAsync();
+        if (Server != null)
         {
-            if (Server != null)
-            {
-                Server.Shutdown();
-            }
-            Cancel.Cancel(); // Cancel the main listening loop
+            Server.UdpCancel.Cancel();
+            Server = null;
         }
     }
 
-    public Server StartServer()
+    public async Task ShutdownAsync(bool waitOnServerShutdown = true)
     {
-        using var mylock = Lock.Lock();
+#if Server
+        Logger.LogInformation($"Shutdown {Application.Name}.");
+        using var mylock = await Lock.LockAsync();
+        if (Server != null)
+        {
+            await Server.ShutdownAsync(true, waitOnServerShutdown);
+            Server = null;
+        }
+#endif
+    }
+    public void Shutdown(bool wait = true)
+    {
+        throw new NotSupportedException();
+    }
+
+    public async Task<Server> StartServerAsync()
+    {
+        using var mylock = await Lock.LockAsync();
         if (!Cancel.IsCancellationRequested)
         {
-                
             if (Server == null)
             {
                 Server = new Server(this);
-                Server.CheckStarted();
+                await Server.StartAsync();
                 //Debug.WriteLine($"Started server {Server.ProcessId} for {Application.Name}");
             }
         }
@@ -301,10 +318,10 @@ public class Proxy
                 var client = await source.AcceptTcpClientAsync(Cancel.Token);
                 if (!Cancel.IsCancellationRequested)
                 {
-                    var server = StartServer();
-                    if (server != null && !Cancel.IsCancellationRequested)
+                    var server = await StartServerAsync();
+                    if (server != null && !Cancel.IsCancellationRequested && !server.TcpCancel.IsCancellationRequested)
                     {
-                        var task = server.CopyAsync(client, await destination(server), Cancel);
+                        var task = server.CopyAsync(client, await destination(server), server.TcpCancel);
                     }
                 }
             }
@@ -315,7 +332,7 @@ public class Proxy
             catch (SocketException ex)
             {
                 Logger.LogError(ex, $"{Application.Name}: Socket error while accepting TCP client");
-                Application.SetStatus(Status.Error, $"Socket error while accepting TCP client {ex}", true);
+                await Application.SetStatusAsync(Status.Error, $"Socket error while accepting TCP client {ex}", true);
             }
         }
         source.Stop();
@@ -323,8 +340,6 @@ public class Proxy
     }
     public async Task ListenAsync(UdpClient source, Func<Server, UdpClient> getDestination)
     {
-        UdpClient destination = null;
-        Server server = null;
         try
         {
             while (!Cancel.IsCancellationRequested)
@@ -332,54 +347,43 @@ public class Proxy
                 try
                 {
                     var packet = await source.ReceiveAsync(Cancel.Token);
-                    if (destination == null)
+                    var server = await StartServerAsync();
+                    if (server != null)
                     {
-                        server = StartServer();
-                        if (server != null)
+                        using var destination = getDestination(server);
+                        using var cancel = CancellationTokenSource.CreateLinkedTokenSource(Cancel.Token, server.UdpCancel.Token);
+                        var receiver = Task.Run(async () =>
                         {
-                            destination = getDestination(server);
-                            /*lock (this)
+                            while (!cancel.IsCancellationRequested)
                             {
-                                if (!Cancel.IsCancellationRequested)
+                                try
                                 {
-                                    if (Server == null) Server = new Server(this);
+                                    var packet = await destination.ReceiveAsync(cancel.Token);
+                                    await source.SendAsync(new ReadOnlyMemory<byte>(packet.Buffer, 0, packet.Buffer.Length), cancel.Token);
                                 }
-                                server = Server;
-                            }*/
-                            _ = Task.Run(async () =>
-                            {
-                                while (!Cancel.IsCancellationRequested)
-                                {
-                                    try {
-                                        var packet = await destination.ReceiveAsync(Cancel.Token);
-                                        await source.SendAsync(new ReadOnlyMemory<byte>(packet.Buffer, 0, packet.Buffer.Length), Cancel.Token);
-                                    } catch { break; }
-                                }
-                            });
-                            await destination.SendAsync(new ReadOnlyMemory<byte>(packet.Buffer, 0, packet.Buffer.Length), Cancel.Token);
-                            while (!Cancel.IsCancellationRequested)
-                            {
-                                try {
-                                    var packet2 = await source.ReceiveAsync(Cancel.Token);
-                                    await destination.SendAsync(new ReadOnlyMemory<byte>(packet2.Buffer, 0, packet2.Buffer.Length), Cancel.Token);
-                                } catch { break; }
+                                catch { }
                             }
+                        });
+                        await destination.SendAsync(new ReadOnlyMemory<byte>(packet.Buffer, 0, packet.Buffer.Length), cancel.Token);
+                        while (!cancel.IsCancellationRequested)
+                        {
+                            try
+                            {
+                                var packet2 = await source.ReceiveAsync(cancel.Token);
+                                await destination.SendAsync(new ReadOnlyMemory<byte>(packet2.Buffer, 0, packet2.Buffer.Length), cancel.Token);
+                            }
+                            catch { }
                         }
+                        await receiver;
                     }
                 }
-                catch (OperationCanceledException)
-                {
-                    if (Cancel.IsCancellationRequested) break;
-                }
+                catch { }
             }
         }
         finally
         {
             source.Close();
-            destination?.Close();
             source.Dispose();
-            destination?.Dispose();
         }
     }
 }
-

@@ -36,6 +36,7 @@
 
 	<ItemGroup>
 		<Compile Remove="AppAssemblyLoadContext.cs" />
+		<Compile Remove="AsyncProcessLockOld.cs" />
 		<Compile Remove="CommandPipe.cs" />
 	</ItemGroup>
 
@@ -49,6 +50,7 @@
 
 	<ItemGroup>
 		<None Include="AppAssemblyLoadContext.cs" />
+		<None Include="AsyncProcessLockOld.cs" />
 		<None Include="CommandPipe.cs" />
 	</ItemGroup>
 
@@ -62,5 +64,6 @@
 		<PackageReference Include="NeoSmart.AsyncLock" Version="3.2.1" />
         <PackageReference Include="plist-cil" Version="2.3.1" />
         <PackageReference Include="SyslogNet.ClientStandard" Version="0.3.4" />
+        <PackageReference Include="Hardware.Info" Version="110.0.0.1" />
     </ItemGroup>
 </Project>

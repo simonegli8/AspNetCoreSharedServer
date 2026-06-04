@@ -51,7 +51,11 @@
 		<Compile Include="..\AspNetCoreSharedServer\Unix.cs">
 			<Link>Unix.cs</Link>
 		</Compile>
-	</ItemGroup>
+        <Compile Include="..\AspNetCoreSharedServer\AsyncProcessLock.cs">
+            <Link>AsyncProcessLock.cs</Link>
+        </Compile>
+
+    </ItemGroup>
 
     <ItemGroup>
       <Content Include="README.md" Pack="true" PackagePath="\" />

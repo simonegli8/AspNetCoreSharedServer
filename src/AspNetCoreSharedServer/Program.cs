@@ -64,11 +64,11 @@ public class Program
                     else
                     {
                         var apppool = args[1];
-                        using var mutex = AspServer.Mutex;
+                        using var mutex = await AspServer.LockAsync();
                         try
                         {
-                            var conf = AspServer.Configuration.LoadRaw();
-                            var app = conf.Applications[apppool];
+                            var conf = await AspServer.Configuration.LoadRawAsync();
+                            var app = conf.Applications?[apppool];
                             if (app == null)
                             {
                                 Console.WriteLine($"Application pool {apppool} not found.");
@@ -76,7 +76,7 @@ public class Program
                             else
                             {
                                 app.Disabled = false;
-                                conf.Save(false, false);
+                                await conf.SaveAsync(false, false);
                                 Console.WriteLine($"Started {apppool} application pool.");
                             }
                         }
@@ -104,11 +104,11 @@ public class Program
                     else
                     {
                         var apppool = args[1];
-                        using var mutex = AspServer.Mutex;
+                        using var mutex = await AspServer.LockAsync();
                         try
                         {
-                            var conf = AspServer.Configuration.LoadRaw();
-                            var app = conf.Applications[apppool];
+                            var conf = await AspServer.Configuration.LoadRawAsync();
+                            var app = conf.Applications?[apppool];
                             if (app == null)
                             {
                                 Console.WriteLine($"Application pool {apppool} not found.");
@@ -116,7 +116,7 @@ public class Program
                             else
                             {
                                 app.Disabled = true;
-                                conf.Save(false, false);
+                                await conf.SaveAsync(false, false);
                                 Console.WriteLine($"Stopped {apppool} application pool.");
                             }
                         }
@@ -171,12 +171,12 @@ public class Program
                     else
                     {
                         var apppool = args[1];
-                        using (var mutex = AspServer.Mutex)
+                        using (var mutex = await AspServer.LockAsync())
                         {
                             try
                             {
-                                var conf = AspServer.Configuration.LoadRaw();
-                                var app = conf.Applications[apppool];
+                                var conf = await AspServer.Configuration.LoadRawAsync();
+                                var app = conf.Applications?[apppool];
                                 if (app == null)
                                 {
                                     Console.WriteLine($"Application pool {apppool} not found.");
@@ -185,7 +185,7 @@ public class Program
                                 else
                                 {
                                     app.Disabled = false;
-                                    conf.Save(false, false);
+                                    await conf.SaveAsync(false, false);
                                 }
                             }
                             catch (Exception ex)
@@ -194,12 +194,12 @@ public class Program
                             }
                         }
                         Thread.Sleep(200);
-                        using (var mutex = AspServer.Mutex)
+                        using (var mutex = await AspServer.LockAsync())
                         {
                             try
                             {
                                 var conf = AspServer.Configuration.LoadRaw();
-                                var app = conf.Applications[apppool];
+                                var app = conf.Applications?[apppool];
                                 if (app == null)
                                 {
                                     Console.WriteLine($"Application pool {apppool} not found.");
@@ -207,7 +207,7 @@ public class Program
                                 else
                                 {
                                     app.Disabled = false;
-                                    conf.Save(false, false);
+                                    await conf.SaveAsync(false, false);
                                     Console.WriteLine($"Restarted {apppool} application pool.");
                                 }
                             }
@@ -230,11 +230,11 @@ public class Program
                     else
                     {
                         var apppool = args[1];
-                        using var mutex = AspServer.Mutex;
+                        using var mutex = await AspServer.LockAsync();
                         try
                         {
                             var conf = AspServer.Configuration.LoadRaw();
-                            var app = conf.Applications[apppool];
+                            var app = conf.Applications?[apppool];
                             if (app == null)
                             {
                                 Console.WriteLine($"Application pool {apppool} not found.");

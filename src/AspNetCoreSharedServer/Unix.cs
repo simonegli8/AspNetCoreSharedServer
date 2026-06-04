@@ -73,6 +73,8 @@ public class Unix
     [DllImport("libc")]
     public static extern uint getuid();
 
+    public static bool IsRoot => getuid() == 0;
+
     public static void SetFilePermissions(string path, UnixFileMode mode, bool resetChildPermissions = false)
     {
         if (!resetChildPermissions)
@@ -83,7 +85,7 @@ public class Unix
             else throw new FileNotFoundException(path);
 
             var prop = info.GetType().GetProperty("UnixFileMode", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
-            prop.SetValue(info, mode);
+            prop?.SetValue(info, mode);
             info.Refresh();
         }
         else
@@ -93,7 +95,7 @@ public class Unix
             foreach (var e in new DirectoryInfo(path).GetFileSystemInfos())
             {
                 var prop = e.GetType().GetProperty("UnixFileMode", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
-                prop.SetValue(e, mode);
+                prop?.SetValue(e, mode);
                 e.Refresh();
             }
         }
