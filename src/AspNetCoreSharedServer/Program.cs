@@ -285,7 +285,7 @@ possible values for argument:
         Configuration config = Configuration.Current;
         try
         {
-            config = config.LoadOnly(false);
+            config = await config.LoadOnlyAsync(false);
         }
         catch (Exception e) { }
 

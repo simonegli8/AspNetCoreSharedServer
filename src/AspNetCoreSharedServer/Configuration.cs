@@ -357,7 +357,10 @@ public class Configuration
         }
         else
         {
-            config = new Configuration();
+            config = new Configuration()
+            {
+                Applications = new Applications(),
+            };
         }
         return config;
     }
@@ -494,12 +497,14 @@ public class Configuration
         }
         else
         {
-            config = new Configuration();
+            config = new Configuration() {
+                Applications = new Applications(),
+            };
         }
         return config;
     }
 
-    public async Task<Configuration?> LoadOnlyAsync(bool loadApps = true, bool useMutex = true)
+    public async Task<Configuration> LoadOnlyAsync(bool loadApps = true, bool useMutex = true)
     {
         if (useMutex)
         {
@@ -513,7 +518,7 @@ public class Configuration
             return await LoadRawAsync(loadApps);
         }
     }
-    public Configuration? LoadOnly(bool loadApps = true, bool useMutex = true)
+    public Configuration LoadOnly(bool loadApps = true, bool useMutex = true)
     {
         if (useMutex)
         {

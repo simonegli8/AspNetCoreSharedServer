@@ -15,19 +15,17 @@ namespace AspNetCoreSharedServer
         {
             Configuration.Current.Logger = Logger = logger;
             Lifetime = lifetime;
-            lifetime.ApplicationStopping.Register(() =>
+            lifetime.ApplicationStopping.Register(async () =>
             {
                 //Logger.LogInformation("Application is stopping...");
-                Configuration.Current.Shutdown();
+                await Configuration.Current.ShutdownAsync();
 			});
 		}
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            var args = Environment.GetCommandLineArgs();
-
             Configuration.Current.Logger = Logger;
-            Configuration.Current.Watch();
+            await Configuration.Current.WatchAsync();
 
             var tcs = new TaskCompletionSource();
             stoppingToken.Register(() => tcs.TrySetResult());

@@ -5,10 +5,11 @@ run as a permanent Systemd service using resources, but should be started on dem
 
 # Usage
 First install AspNetCoreSharedServer using the comman `sudo dotnet tool install AspNetCoreSharedServer --global`.
-Next, execute `aspnet-server install` to install the server as a service. This works on Linux using Systemd or OpenRC
-(like on Alpine) and on macOS. You can then manage the service with your system's service commands and the name
-`aspnet-server`. To uninstall the system service run `aspnet-server uninstall`. To show help on usage, execute 
-`aspnet-server -?` or `aspnet-server -help`.
+Next, execute `sudo aspnet-server install` to install the server as a service. You might need to add the
+`/root/.dontet/tools` path to your PATH environment variable for root first for this to work. This works on Linux using
+Systemd or OpenRC (like on Alpine) and on macOS. You can then manage the service with your system's service
+commands and the name of the service `aspnet-server`. To uninstall the system service run `sudo aspnet-server uninstall`.
+To show help on usage, execute `sudo aspnet-server -?` or `sudo aspnet-server -help`.
 
 
 ## Configure AspNetCoreSharedServer
