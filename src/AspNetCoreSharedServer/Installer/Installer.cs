@@ -211,7 +211,7 @@ public class Installer
             {
                 using (var mutex = await Configuration.LockAsync())
                 {
-                    conf = conf.LoadOnly(true, false);
+                    conf = await conf.LoadConfigAsync();
                     conf.EnableHttp3 = false;
                     conf.User = WwwData;
                     conf.IdleTimeout = TimeSpan.FromMinutes(5);

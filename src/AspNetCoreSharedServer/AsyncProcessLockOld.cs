@@ -1,7 +1,9 @@
 ﻿using AspNetCoreSharedServer;
 using AspNetCoreSharedServer.Util;
 using Microsoft.Win32.SafeHandles;
+using NeoSmart.AsyncLock;
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -9,87 +11,182 @@ using System.Threading.Tasks;
 
 namespace AspNetCoreSharedServer;
 
+
+public sealed class AsyncProcessLockOld : IDisposable
+
 #if NETCOREAPP
-public sealed class AsyncProcessLock : IAsyncDisposable, IDisposable
-#else
-public sealed class AsyncProcessLock : IDisposable
+    , IAsyncDisposable
 #endif
+
 {
     private const int LOCK_EX = 2;
     private const int LOCK_NB = 4;
     private const int LOCK_UN = 8;
+    private const int O_CREAT = 0x40;
+    private const int O_RDWR = 0x2;
+
+    const int pollMilliseconds = 100;
 
     private readonly string _name;
 
-    // Windows
+    // =========================
+    // WINDOWS
+    // =========================
     private Mutex? _mutex;
 
-    // Unix
-    private FileStream? _stream;
-    private SafeFileHandle? _handle;
-
-    // 🔹 Async-flow-local reentrancy tracking
-    private static readonly AsyncLocal<Dictionary<string, int>> _heldLocks = new();
+    // =========================
+    // UNIX
+    // =========================
+    private int _fd = -1;
 
     private bool _owned;
 
-    private AsyncProcessLock(string name)
+    private AsyncProcessLockOld(string name)
     {
         _name = NormalizeName(name);
+        OldAscnyId = AsyncId;
+        if (OSInfo.IsLinux || OSInfo.IsMac) Directory.CreateDirectory(Path.GetDirectoryName(_name));
     }
-    private int Fd => (int)_handle!.DangerousGetHandle().ToInt64();
 
-    // -----------------------------
+    // =========================================================
+    // ASYNC REENTRANCY (Async flow)
+    // =========================================================
+    private static readonly AsyncLocal<long> asyncId = new AsyncLocal<long>();
+    private static long AsyncId => asyncId.Value;
+    private static long AsyncStackCounter = 0;
+    const long UnlockId = default;
+    long OldAsyncId = UnlockId;
+    long OwnerId = UnlockId;
+    private int reentrances = 0;
+
+
+    // =========================================================
+    // SYNC REENTRANCY (Thread-local)
+    // =========================================================
+    [ThreadStatic]
+    private static Dictionary<string, int>? _syncHeld;
+
+    // =========================================================
     // FACTORY
-    // -----------------------------
-    public static async Task<AsyncProcessLock> AcquireAsync(
+    // =========================================================
+    public static async Task<AsyncProcessLockOld> AcquireAsync(
         string name,
         TimeSpan? timeout = null,
         CancellationToken ct = default)
     {
-        const int pollMilliseconds = 100;
-
         timeout ??= TimeSpan.FromSeconds(15);
 
-        var instance = new AsyncProcessLock(name);
+        var instance = new AsyncProcessLockOld(name);
+        instance.OldAsyncId = AsyncId;
+        asyncId.Value = Interlocked.Increment(ref AsyncStackCounter);
 
-        bool ok = await instance.AcquireInternalAsync(timeout ?? TimeSpan.FromSeconds(10), pollMilliseconds, ct);
-
-        if (!ok)
-            throw new TimeoutException("Failed to acquire process lock.");
+        if (!await instance.AcquireAsyncInternal(timeout.Value, pollMilliseconds, ct))
+            throw new TimeoutException();
 
         return instance;
     }
 
-    // -----------------------------
-    // PLATFORM DISPATCH
-    // -----------------------------
-    private async Task<bool> AcquireInternalAsync(
-        TimeSpan timeout,
-        int pollMs,
-        CancellationToken ct)
+    public static AsyncProcessLockOld Acquire(
+        string name,
+        TimeSpan? timeout = null,
+        CancellationToken ct = default)
     {
-        if (OSInfo.IsWindows)
-            return await AcquireWindowsAsync(timeout, pollMs, ct);
+        timeout ??= TimeSpan.FromSeconds(60);
 
-        return await AcquireUnixAsync(timeout, pollMs, ct);
+        var instance = new AsyncProcessLockOld(name);
+
+        if (!instance.AcquireSyncInternal(timeout.Value, pollMilliseconds, ct))
+            throw new TimeoutException();
+
+        return instance;
     }
 
-    // =============================
-    // WINDOWS IMPLEMENTATION
-    // =============================
-    private async Task<bool> AcquireWindowsAsync(
+    // =========================================================
+    // ASYNC ACQUIRE
+    // =========================================================
+    private async Task<bool> AcquireAsyncInternal(
         TimeSpan timeout,
         int pollMs,
         CancellationToken ct)
     {
         var start = DateTime.UtcNow;
 
-        _mutex = new Mutex(false, _name);
+        if (_syncHeld != null) throw new NotSupportedException("Mixing of Sync and Async invocation of Lock is not supported.");
+
+        if (OwnerId == UnlockId || OwnerId == OldAsyncId) OwnerId = AsyncId;
+        else
+        {
+            // Another thread currently owns the lock
+            return false;
+        }
+
+
+        if (held.TryGetValue(_name, out var depth))
+        {
+            held[_name] = depth + 1;
+            return true;
+        }
 
         while (true)
         {
             ct.ThrowIfCancellationRequested();
+
+            if (DateTime.UtcNow - start > timeout)
+                return false;
+
+            if (await TryAcquireOnceAsync())
+            {
+                held[_name] = 1;
+                return true;
+            }
+
+            await Task.Delay(pollMs, ct);
+        }
+    }
+
+    // =========================================================
+    // SYNC ACQUIRE
+    // =========================================================
+    private bool AcquireSyncInternal(
+        TimeSpan timeout,
+        int pollMs,
+        CancellationToken ct)
+    {
+        var start = DateTime.UtcNow;
+
+        _syncHeld ??= new Dictionary<string, int>();
+
+        if (_syncHeld.TryGetValue(_name, out var depth))
+        {
+            _syncHeld[_name] = depth + 1;
+            return true;
+        }
+
+        while (true)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            if (DateTime.UtcNow - start > timeout)
+                return false;
+
+            if (TryAcquireOnceSync())
+            {
+                _syncHeld[_name] = 1;
+                return true;
+            }
+
+            Thread.Sleep(pollMs);
+        }
+    }
+
+    // =========================================================
+    // CORE ACQUIRE (ASYNC PATH)
+    // =========================================================
+    private async Task<bool> TryAcquireOnceAsync()
+    {
+        if (OSInfo.IsWindows)
+        {
+            _mutex ??= new Mutex(false, _name);
 
             try
             {
@@ -105,138 +202,155 @@ public sealed class AsyncProcessLock : IDisposable
                 return true;
             }
 
-            if (DateTime.UtcNow - start > timeout)
-                return false;
+            return false;
+        }
+        int fd = -1;
+        try
+        {
+            fd = open(_name, O_CREAT | O_RDWR, 0x1A4); // 0644
 
-            await Task.Delay(pollMs, ct);
+            if (fd == -1) return false;
+
+            if (flock(fd, LOCK_EX | LOCK_NB) == 0)       
+            {
+                _fd = fd;
+                return true;
+            } else
+            {
+                var errno = Marshal.GetLastWin32Error();
+            }
+
+            return false;
+        }
+        finally
+        {
+            if (fd != -1 && _fd != fd) close(fd);
         }
     }
 
-    // =============================
-    // UNIX IMPLEMENTATION
-    // =============================
-    [DllImport("libc", SetLastError = true)]
-    private static extern int flock(int fd, int operation);
-
-    private async Task<bool> AcquireUnixAsync(
-        TimeSpan timeout,
-        int pollMilliseconds,
-        CancellationToken ct)
+    // =========================================================
+    // CORE ACQUIRE (SYNC PATH)
+    // =========================================================
+    private bool TryAcquireOnceSync()
     {
-        var start = DateTime.UtcNow;
-
-        var heldLocks = _heldLocks.Value;
-
-        if (heldLocks == null)
+        if (OSInfo.IsWindows)
         {
-            heldLocks = new Dictionary<string, int>(
-                StringComparer.Ordinal);
-
-            _heldLocks.Value = heldLocks;
-        }
-
-        // ✅ Reentrant acquisition
-        if (heldLocks.TryGetValue(_name, out int depth))
-        {
-            heldLocks[_name] = depth + 1;
-            return true;
-        }
-
-
-        while (true)
-        {
-            ct.ThrowIfCancellationRequested();
-
-            if (DateTime.UtcNow - start > timeout)
-                return false;
-
-            FileStream? stream = null;
+            _mutex ??= new Mutex(false, _name);
 
             try
             {
-                stream = new FileStream(
-                    _name,
-                    FileMode.OpenOrCreate,
-                    FileAccess.ReadWrite,
-                    FileShare.ReadWrite);
-
-                int result = flock(Fd, LOCK_EX | LOCK_NB);
-
-                if (result == 0)
+                if (_mutex.WaitOne(0))
                 {
-                    _stream = stream;
-                    _handle = stream.SafeFileHandle;
-
-                    heldLocks[_name] = 1;
-
-                    stream = null; // transfer ownership
-
+                    _owned = true;
                     return true;
                 }
             }
-            finally
+            catch (AbandonedMutexException)
             {
-                stream?.Dispose();
+                _owned = true;
+                return true;
             }
 
-            await Task.Delay(pollMilliseconds, ct);
+            return false;
+        }
+
+        try
+        {
+            int fd = open(_name, O_CREAT | O_RDWR, 0x1A4); // 0644
+
+            if (fd == -1) return false;
+
+            if (flock(fd, LOCK_EX | LOCK_NB) == 0)
+            {
+                _fd = fd;
+                return true;
+            } else
+            {
+                var errno = Marshal.GetLastWin32Error();
+            }
+
+            close(fd);
+            return false;
+        }
+        finally
+        {
         }
     }
 
-    // -----------------------------
+    // =========================================================
     // RELEASE
-    // -----------------------------
-
+    // =========================================================
     public void Release()
     {
         if (OSInfo.IsWindows)
         {
-            if (!_owned)
-                return;
-
-            _mutex?.ReleaseMutex();
-            _mutex?.Dispose();
-            _mutex = null;
-
-            _owned = false;
-        }
-        else
-        {
-            var heldLocks = _heldLocks.Value;
-
-            if (heldLocks == null)
-                return;
-
-            if (!heldLocks.TryGetValue(_name, out int depth))
-                return;
-
-            // recursive release
-            if (depth > 1)
+            if (_owned)
             {
-                heldLocks[_name] = depth - 1;
+                _mutex?.ReleaseMutex();
+                _mutex?.Dispose();
+                _mutex = null;
+                _owned = false;
+            }
+
+            return;
+        }
+
+        reentrances--;
+        OwnerId = OldAsyncId;
+        if (reentrances == 0) OwnerId = UnlockId;
+
+        var syncHeld = _syncHeld;
+        if (syncHeld != null && syncHeld.TryGetValue(_name, out var dSync))
+        {
+            if (dSync > 1)
+            {
+                syncHeld[_name] = dSync - 1;
                 return;
             }
 
-            // fully release
-            heldLocks.Remove(_name);
-
-            if (_handle != null) flock(Fd, LOCK_UN);
-
-            _stream?.Dispose();
-            _stream = null;
-            _handle = null;
+            syncHeld.Remove(_name);
         }
 
+        if (_fd != -1)
+        {
+            flock(_fd, LOCK_UN);
+            close(_fd);
+
+            _fd = -1;
+        }
+        
         return;
     }
 
-    public void Dispose() => Release();
+    public async Task ReleaseAsync()
+    {
+        Release();
+    }
+
 #if NETCOREAPP
-    public async ValueTask DisposeAsync() => Release();
+    public async ValueTask DisposeAsync()
+    {
+        Release();
+    }
 #endif
-    // -----------------------------
-    // HELPERS
-    // -----------------------------
+
+    public void Dispose()
+    {
+        Release();
+        GC.SuppressFinalize(this);
+    }
+
+    // =========================================================
+    // LIBC
+    // =========================================================
+    [DllImport("libc", SetLastError = true)]
+    private static extern int flock(int fd, int operation);
+    [DllImport("libc", SetLastError = true)]
+    private static extern int open(string pathname, int flags, uint mode);
+
+    [DllImport("libc", SetLastError = true)]
+    private static extern int close(int fd);
+
     private static string NormalizeName(string name)
     {
         if (OSInfo.IsWindows)

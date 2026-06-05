@@ -224,15 +224,15 @@ public class Configuration
     public int FailureLimit { get; set; } = 5;
     int loadEntered = 0;
 
-    public static Task<AsyncProcessLock> LockAsync() => AsyncProcessLock.AcquireAsync(LockName, LockTimeout);
-    public static AsyncProcessLock Lock() => AsyncProcessLock.Acquire(LockName, LockTimeout);
-    internal async Task<Configuration> LoadRawAsync(bool loadApps = true)
+    public static Task<AsyncProcessLockOld> LockAsync() => AsyncProcessLockOld.AcquireAsync(LockName, LockTimeout);
+    public static AsyncProcessLockOld Lock() => AsyncProcessLockOld.Acquire(LockName, LockTimeout);
+    internal async Task<Configuration?> LoadConfigAsync(bool loadApps = true)
     {
         // import old config path /etc/aspnetcore if it exists to /etc/aspnet-server
         if (File.Exists(ConfigPathOld))
         {
             var path = Path.GetDirectoryName(ConfigPath);
-            if (!Directory.Exists(path))
+            if (path != null && !Directory.Exists(path))
             {
                 Directory.CreateDirectory(path);
                 if (!OSInfo.IsWindows) Unix.SetFilePermissions(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
@@ -240,7 +240,7 @@ public class Configuration
             File.Copy(ConfigPathOld, ConfigPath, true);
             if (!OSInfo.IsWindows) Unix.SetFilePermissions(ConfigPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
 
-            Directory.Delete(Path.GetDirectoryName(ConfigPathOld), true);
+            Directory.Delete(Path.GetDirectoryName(ConfigPathOld)!, true);
         }
 
         Configuration? config = null;
@@ -264,8 +264,7 @@ public class Configuration
                 }
                 if (config == null)
                 {
-                    config = new Configuration();
-                    await config.SaveAsync(true, false);
+                    return null;
                 }
 
                 if (config.Applications == null) config.Applications = new Applications();
@@ -279,7 +278,7 @@ public class Configuration
                 if (loadApps)
                 {
                     bool hasError = false;
-                    var separateConfigs = Directory.EnumerateFiles(Path.GetDirectoryName(ConfigPath), "*.json")
+                    var separateConfigs = Directory.EnumerateFiles(Path.GetDirectoryName(ConfigPath)!, "*.json")
                         .Where(file => file != ConfigPath && file != ConfigPathOld)
                         .Select(file =>
                         {
@@ -365,13 +364,13 @@ public class Configuration
         return config;
     }
 
-    internal Configuration LoadRaw(bool loadApps = true)
+    internal Configuration? LoadConfig(bool loadApps = true)
     {
         // import old config path /etc/aspnetcore if it exists to /etc/aspnet-server
         if (File.Exists(ConfigPathOld))
         {
             var path = Path.GetDirectoryName(ConfigPath);
-            if (!Directory.Exists(path))
+            if (path != null && !Directory.Exists(path))
             {
                 Directory.CreateDirectory(path);
                 if (!OSInfo.IsWindows) Unix.SetFilePermissions(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
@@ -379,7 +378,7 @@ public class Configuration
             File.Copy(ConfigPathOld, ConfigPath, true);
             if (!OSInfo.IsWindows) Unix.SetFilePermissions(ConfigPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
 
-            Directory.Delete(Path.GetDirectoryName(ConfigPathOld), true);
+            Directory.Delete(Path.GetDirectoryName(ConfigPathOld)!, true);
         }
 
         Configuration? config = null;
@@ -497,40 +496,12 @@ public class Configuration
         }
         else
         {
-            config = new Configuration() {
+            config = new Configuration()
+            {
                 Applications = new Applications(),
             };
         }
         return config;
-    }
-
-    public async Task<Configuration> LoadOnlyAsync(bool loadApps = true, bool useMutex = true)
-    {
-        if (useMutex)
-        {
-            using (var mutex = LockAsync())
-            {
-                return await LoadRawAsync(loadApps);
-            }
-        }
-        else
-        {
-            return await LoadRawAsync(loadApps);
-        }
-    }
-    public Configuration LoadOnly(bool loadApps = true, bool useMutex = true)
-    {
-        if (useMutex)
-        {
-            using (var mutex = Lock())
-            {
-                return LoadRaw(loadApps);
-            }
-        }
-        else
-        {
-            return LoadRaw(loadApps);
-        }
     }
 
     public bool IsAppChanged(Application app, Application oapp, bool oldDisabled)
@@ -553,7 +524,7 @@ public class Configuration
         {
             try
             {
-                var config = await LoadRawAsync();
+                var config = await LoadConfigAsync();
                 if (Applications == null) Applications = new Applications();
                 IdleTimeout = config.IdleTimeout;
                 Recycle = config.Recycle;
@@ -652,7 +623,7 @@ public class Configuration
                     {
                         Applications.Add(app);
 #if Server
-                            await ListenAsync(app);
+                        await ListenAsync(app);
 #endif
                     }
                 }
@@ -661,11 +632,11 @@ public class Configuration
                 {
                     var oapp = oldApps[oi];
 #if Server
-                        if (oapp.Proxy != null)
-                        {
-                            await oapp.Proxy.ShutdownAsync(false);
-                            oapp.Proxy = null;
-                        }
+                    if (oapp.Proxy != null)
+                    {
+                        await oapp.Proxy.ShutdownAsync(false);
+                        oapp.Proxy = null;
+                    }
 #endif
                     Applications.Remove(oapp);
                     oi++;
@@ -684,7 +655,7 @@ public class Configuration
         {
             using (var mutex = await LockAsync()) await LoadInternalAsync();
         }
-        else LoadInternalAsync();
+        else await LoadInternalAsync();
     }
 
     public void Load(bool useMutex = true)
@@ -692,11 +663,11 @@ public class Configuration
         var inside = Interlocked.Exchange(ref loadEntered, 1) == 1;
         if (inside || IsShuttingDown) return; // Prevent re-entrancy
 
-        void  LoadInternal()
+        void LoadInternal()
         {
             try
             {
-                var config = LoadRaw();
+                var config = LoadConfig();
 #if Server
                 if (config.Command == Command.Shutdown)
                 {
@@ -756,7 +727,7 @@ public class Configuration
                         Logger.LogError("Cannot set User or Group of Application when not running AspNetCoreSharedServer as root.");
                         return;
                     }
-                }  
+                }
 #endif
                 int i = 0, oi = 0;
                 for (i = 0; i < newApps.Count; i++)
@@ -846,7 +817,8 @@ public class Configuration
                     await server.ListenAsync();
                     await app.SetStatusAsync(Status.Stopped, null, false, false);
                 }
-                catch (Exception ex) {
+                catch (Exception ex)
+                {
                 }
             });
             app.SetStatus(Status.Running, null, false, false);
@@ -866,7 +838,8 @@ public class Configuration
                     await server.ListenAsync();
                     await app.SetStatusAsync(Status.Stopped, null, false, false);
                 }
-                catch (Exception ex) {
+                catch (Exception ex)
+                {
                 }
             });
             await app.SetStatusAsync(Status.Running, null, false, false);
@@ -910,7 +883,7 @@ public class Configuration
             if (app.Environment == null) app.Environment = new Dictionary<string, string>();
         }
 #if Server
-            if (watcher != null && disableWatcher) watcher.EnableRaisingEvents = false;
+        if (watcher != null && disableWatcher) watcher.EnableRaisingEvents = false;
 #endif
         File.WriteAllText(ConfigPath, json);
         foreach (var extapp in extapps)
@@ -945,8 +918,8 @@ public class Configuration
             {
                 SaveInternal(disableWatcher);
 #if Server
-            await Task.Delay(100);
-            if (watcher != null && disableWatcher) watcher.EnableRaisingEvents = true;
+                await Task.Delay(100);
+                if (watcher != null && disableWatcher) watcher.EnableRaisingEvents = true;
 #endif
             }
         }
@@ -969,8 +942,8 @@ public class Configuration
             {
                 SaveInternal(disableWatcher);
 #if Server
-            Thread.Sleep(100);
-            if (watcher != null && disableWatcher) watcher.EnableRaisingEvents = true;
+                Thread.Sleep(100);
+                if (watcher != null && disableWatcher) watcher.EnableRaisingEvents = true;
 #endif
             }
         }
@@ -1185,6 +1158,7 @@ public class Configuration
             });
         };
         watcher.EnableRaisingEvents = true;
+
         await LoadAsync();
     }
 
@@ -1201,7 +1175,7 @@ public class Configuration
         using (var mutex = Lock())
         {
             IsShuttingDown = true;
-            var config = LoadOnly(true, false);
+            var config = LoadConfig();
             apps = Applications?.ToList() ?? Enumerable.Empty<Application>();
             foreach (var app in apps)
             {
@@ -1237,10 +1211,10 @@ public class Configuration
             watcher = null;
         }
         IEnumerable<Application> apps;
-        using (var mutex = Lock())
+        using (var mutex = await LockAsync())
         {
             IsShuttingDown = true;
-            var config = LoadOnly(true, false);
+            var config = await LoadConfigAsync();
             apps = config?.Applications?.ToList() ?? Enumerable.Empty<Application>();
             foreach (var app in apps)
             {
@@ -1439,7 +1413,7 @@ public class Application
                 app.Disabled = true;
             }
             config.Save(true, false);
-            if (disableChanged && load)  _ = Task.Run(() => Configuration.Current.Load(false));
+            if (disableChanged && load) _ = Task.Run(() => Configuration.Current.Load(false));
         }
     }
     internal async Task SetStatusAsync(Status status, string? error, bool disable = false, bool load = true)
@@ -1555,7 +1529,7 @@ public static class AspServer
         if (appId == null)
         {
             using var mutex = Configuration.Lock();
-            var config = Configuration.LoadOnly(true, false);
+            var config = Configuration.LoadConfig();
             if (config != null && config.Disabled != disabled)
             {
                 config.Disabled = disabled;
@@ -1566,7 +1540,7 @@ public static class AspServer
         else
         {
             using var mutex = Configuration.Lock();
-            var config = Configuration.LoadOnly(true, false);
+            var config = Configuration.LoadConfig();
             if (config != null && config.Applications != null && config.Applications[appId].Disabled != disabled)
             {
                 config.Applications[appId].Disabled = disabled;
@@ -1580,7 +1554,7 @@ public static class AspServer
         if (appId == null)
         {
             using var mutex = await Configuration.LockAsync();
-            var config = await Configuration.LoadOnlyAsync(true, false);
+            var config = await Configuration.LoadConfigAsync();
             if (config != null && config.Disabled != disabled)
             {
                 config.Disabled = disabled;
@@ -1591,7 +1565,7 @@ public static class AspServer
         else
         {
             using var mutex = await Configuration.LockAsync();
-            var config = await Configuration.LoadOnlyAsync(true, false);
+            var config = await Configuration.LoadConfigAsync();
             if (config != null && config.Applications != null && config.Applications[appId].Disabled != disabled)
             {
                 config.Applications[appId].Disabled = disabled;
@@ -1631,7 +1605,7 @@ public static class AspServer
     }
     public static async Task<Status> StatusAsync(string appId = null)
     {
-        using var mutex = Configuration.LockAsync();
+        using var mutex = await Configuration.LockAsync();
         if (appId == null)
         {
             return Configuration.Disabled ? AspNetCoreSharedServer.Status.Running : AspNetCoreSharedServer.Status.Stopped;
@@ -1647,7 +1621,7 @@ public static class AspServer
     public static async Task ShutdownAsync() => await Configuration.ShutdownAsync();
     public static int FindFreePort() => Configuration.FindFreePort();
     public static async Task<int> FindFreePortAsync() => await Configuration.FindFreePortAsync();
-    public static AsyncProcessLock Lock() => Configuration.Lock();
-    public static Task<AsyncProcessLock> LockAsync() => Configuration.LockAsync();
+    public static AsyncProcessLockOld Lock() => Configuration.Lock();
+    public static Task<AsyncProcessLockOld> LockAsync() => Configuration.LockAsync();
 
 }

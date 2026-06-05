@@ -32,11 +32,12 @@
 		<IncludeSymbols>false</IncludeSymbols>
 		<PublishRepositoryUrl>true</PublishRepositoryUrl>
         <PackageOutputPath>..\..\nupkg</PackageOutputPath>
+        <WarningsAsErrors>CS4014</WarningsAsErrors>
 	</PropertyGroup>
 
 	<ItemGroup>
 		<Compile Remove="AppAssemblyLoadContext.cs" />
-		<Compile Remove="AsyncProcessLockOld.cs" />
+		<Compile Remove="AsyncMutexLock.cs" />
 		<Compile Remove="CommandPipe.cs" />
 	</ItemGroup>
 
@@ -50,7 +51,7 @@
 
 	<ItemGroup>
 		<None Include="AppAssemblyLoadContext.cs" />
-		<None Include="AsyncProcessLockOld.cs" />
+		<None Include="AsyncMutexLock.cs" />
 		<None Include="CommandPipe.cs" />
 	</ItemGroup>
 

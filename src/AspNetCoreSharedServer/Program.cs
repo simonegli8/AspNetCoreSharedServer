@@ -67,7 +67,7 @@ public class Program
                         using var mutex = await AspServer.LockAsync();
                         try
                         {
-                            var conf = await AspServer.Configuration.LoadRawAsync();
+                            var conf = await AspServer.Configuration.LoadConfigAsync();
                             var app = conf.Applications?[apppool];
                             if (app == null)
                             {
@@ -107,7 +107,7 @@ public class Program
                         using var mutex = await AspServer.LockAsync();
                         try
                         {
-                            var conf = await AspServer.Configuration.LoadRawAsync();
+                            var conf = await AspServer.Configuration.LoadConfigAsync();
                             var app = conf.Applications?[apppool];
                             if (app == null)
                             {
@@ -175,7 +175,7 @@ public class Program
                         {
                             try
                             {
-                                var conf = await AspServer.Configuration.LoadRawAsync();
+                                var conf = await AspServer.Configuration.LoadConfigAsync();
                                 var app = conf.Applications?[apppool];
                                 if (app == null)
                                 {
@@ -198,7 +198,7 @@ public class Program
                         {
                             try
                             {
-                                var conf = AspServer.Configuration.LoadRaw();
+                                var conf = AspServer.Configuration.LoadConfig();
                                 var app = conf.Applications?[apppool];
                                 if (app == null)
                                 {
@@ -233,7 +233,7 @@ public class Program
                         using var mutex = await AspServer.LockAsync();
                         try
                         {
-                            var conf = AspServer.Configuration.LoadRaw();
+                            var conf = AspServer.Configuration.LoadConfig();
                             var app = conf.Applications?[apppool];
                             if (app == null)
                             {
@@ -285,7 +285,10 @@ possible values for argument:
         Configuration config = Configuration.Current;
         try
         {
-            config = await config.LoadOnlyAsync(false);
+            using (await Configuration.LockAsync())
+            {
+                config = await config.LoadConfigAsync(false);
+            }
         }
         catch (Exception e) { }
 
