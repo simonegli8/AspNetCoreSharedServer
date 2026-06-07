@@ -92,7 +92,7 @@ The individual applications can also be placed in separate json files, named aft
   }
   "IdleTimeout": 300,
   "Recycle": 1200,
-  "Disabled": false,
+  "Offline": false,
   "User": "www-data",
   "Group": "www-data",
   "Status": "Running"
