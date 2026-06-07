@@ -37,7 +37,6 @@
 
 	<ItemGroup>
 		<Compile Remove="AppAssemblyLoadContext.cs" />
-		<Compile Remove="AsyncMutexLock.cs" />
 		<Compile Remove="CommandPipe.cs" />
 	</ItemGroup>
 
@@ -51,7 +50,6 @@
 
 	<ItemGroup>
 		<None Include="AppAssemblyLoadContext.cs" />
-		<None Include="AsyncMutexLock.cs" />
 		<None Include="CommandPipe.cs" />
 	</ItemGroup>
 
@@ -62,7 +60,7 @@
 		<!--<PackageReference Include="Mono.Posix" Version="7.1.0-final.1.21458.1" />
 		<PackageReference Include="Mono.Unix" Version="7.1.0-final.1.21458.1" />-->
 		<PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
-		<PackageReference Include="NeoSmart.AsyncLock" Version="3.2.1" />
+		<PackageReference Include="EstrellasDeEsperanza.AsyncLock" Version="4.0.5" />
         <PackageReference Include="plist-cil" Version="2.3.1" />
         <PackageReference Include="SyslogNet.ClientStandard" Version="0.3.4" />
         <PackageReference Include="Hardware.Info" Version="110.0.0.1" />

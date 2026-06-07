@@ -1,4 +1,4 @@
-﻿using NeoSmart.AsyncLock;
+﻿using EstrellasDeEsperanza.AsyncLock;
 using System.Buffers;
 using System.ComponentModel;
 using System.Diagnostics;

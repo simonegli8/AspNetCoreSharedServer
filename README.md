@@ -20,7 +20,7 @@ name in `/etc/aspnet-server`. When the configuration is changed, changes are app
 {
   "IdleTimeout": 300,
   "Recycle": 1200,
-  "Disbled": false,
+  "Offline": false,
   "User": "www-data",
   "Group": "www-data"
   "FailureLimit": 5,
@@ -46,7 +46,7 @@ name in `/etc/aspnet-server`. When the configuration is changed, changes are app
       }
       "IdleTimeout": 300,
       "Recycle": 1200,
-      "Disabled": false,
+      "Offline": false,
       "User": "www-data",
       "Group": "www-data",
       "Status": "Running"
@@ -64,7 +64,7 @@ name in `/etc/aspnet-server`. When the configuration is changed, changes are app
 - `IdleTimeout` is the time in seconds or JSON time value after which the application will be stopped when it is idle.
 - `Recycle` is the time in seconds or JSON time value after which the application will be restarted, regardless of activity.
 - `Environment` is a dictionary of environment variables that will be set for the application when it is started.
-- `Disable` if true, the application or the server is disabled.
+- `Offline` if true, the application or the server is disabled.
 - `Syslog` optional Syslog configuration.
 - `FailureLimit` number of failures within `FailureInterval` in order to disable app pool.
 - `FailureInterval` time span within to count the number of failures.

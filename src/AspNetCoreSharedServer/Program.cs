@@ -75,7 +75,7 @@ public class Program
                             }
                             else
                             {
-                                app.Disabled = false;
+                                app.Offline = false;
                                 await conf.SaveAsync(false, false);
                                 Console.WriteLine($"Started {apppool} application pool.");
                             }
@@ -115,7 +115,7 @@ public class Program
                             }
                             else
                             {
-                                app.Disabled = true;
+                                app.Offline = true;
                                 await conf.SaveAsync(false, false);
                                 Console.WriteLine($"Stopped {apppool} application pool.");
                             }
@@ -184,7 +184,7 @@ public class Program
                                 }
                                 else
                                 {
-                                    app.Disabled = false;
+                                    app.Offline = false;
                                     await conf.SaveAsync(false, false);
                                 }
                             }
@@ -206,7 +206,7 @@ public class Program
                                 }
                                 else
                                 {
-                                    app.Disabled = false;
+                                    app.Offline = false;
                                     await conf.SaveAsync(false, false);
                                     Console.WriteLine($"Restarted {apppool} application pool.");
                                 }

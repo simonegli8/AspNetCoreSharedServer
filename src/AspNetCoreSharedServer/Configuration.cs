@@ -5,7 +5,7 @@ using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using Mono.Cecil;
-using NeoSmart.AsyncLock;
+using EstrellasDeEsperanza.AsyncLock;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Converters;
 using AspNetCoreSharedServer.Util;
@@ -217,15 +217,21 @@ public class Configuration
     public Command Command { get; set; } = Command.None;
     public bool IsShuttingDown = false;
     [DefaultValue(false)]
-    public bool Disabled { get; set; } = false;
+    public bool Offline { get; set; } = false;
     [DefaultValue(typeof(TimeSpan), "00:05:00")]
     public TimeSpan FailureInterval { get; set; } = TimeSpan.FromMinutes(5);
     [DefaultValue(5)]
     public int FailureLimit { get; set; } = 5;
     int loadEntered = 0;
 
-    public static Task<AsyncProcessLockOld> LockAsync() => AsyncProcessLockOld.AcquireAsync(LockName, LockTimeout);
-    public static AsyncProcessLockOld Lock() => AsyncProcessLockOld.Acquire(LockName, LockTimeout);
+    static AsyncMutexLock @lock = null;
+    public static AsyncMutexLock MutexLock => @lock ??= new AsyncMutexLock(LockName);
+    public static Task<IDisposable> LockAsync(CancellationToken cancel = default) =>
+        MutexLock.LockAsync(CancellationTokenSource.CreateLinkedTokenSource(cancel,
+            new CancellationTokenSource(LockTimeout).Token).Token);
+    public static IDisposable Lock(CancellationToken cancel = default) =>
+        MutexLock.LockAsync(CancellationTokenSource.CreateLinkedTokenSource(cancel,
+            new CancellationTokenSource(LockTimeout).Token).Token);
     internal async Task<Configuration?> LoadConfigAsync(bool loadApps = true)
     {
         // import old config path /etc/aspnetcore if it exists to /etc/aspnet-server
@@ -318,19 +324,19 @@ public class Configuration
                             {
                                 // Retry loading app after one second, in case owner and mode of a freshly created file
                                 // has not yet been set. (The file might have been created by Api's Save method).
-                                if (!app.Disabled && !app.IsReloading &&
+                                if (!app.Offline && !app.IsReloading &&
                                     (DateTime.Now - File.GetCreationTime(file) < TimeSpan.FromSeconds(5)))
                                 {
                                     app.IsReloading = true;
                                     Task.Run(async () =>
                                     {
                                         await Task.Delay(1000);
-                                        app.Disabled = false;
+                                        app.Offline = false;
                                         await LoadAsync();
                                         app.IsReloading = false;
                                     });
                                 }
-                                app.Disabled = true;
+                                app.Offline = true;
                                 app.Status = Status.Error;
                                 app.Error = $"The app json file {Path.GetFileName(file)} has a different owner than the app's User, or is writable by group or other. It must be writable only by it's owner, and must be owned by the same user specified in it's User json property.";
                                 hasError = true;
@@ -458,19 +464,19 @@ public class Configuration
                             {
                                 // Retry loading app after one second, in case owner and mode of a freshly created file
                                 // has not yet been set. (The file might have been created by Api's Save method).
-                                if (!app.Disabled && !app.IsReloading &&
+                                if (!app.Offline && !app.IsReloading &&
                                     (DateTime.Now - File.GetCreationTime(file) < TimeSpan.FromSeconds(5)))
                                 {
                                     app.IsReloading = true;
                                     Task.Run(async () =>
                                     {
                                         await Task.Delay(1000);
-                                        app.Disabled = false;
+                                        app.Offline = false;
                                         Load();
                                         app.IsReloading = false;
                                     });
                                 }
-                                app.Disabled = true;
+                                app.Offline = true;
                                 app.Status = Status.Error;
                                 app.Error = $"The app json file {Path.GetFileName(file)} has a different owner than the app's User, or is writable by group or other. It must be writable only by it's owner, and must be owned by the same user specified in it's User json property.";
                                 hasError = true;
@@ -504,7 +510,7 @@ public class Configuration
         return config;
     }
 
-    public bool IsAppChanged(Application app, Application oapp, bool oldDisabled)
+    public bool IsAppChanged(Application app, Application oapp, bool oldOffline)
     {
         return oapp.Assembly != app.Assembly || oapp.Urls != app.Urls || oapp.Arguments != app.Arguments ||
             oapp.ListenUrls != app.ListenUrls || oapp.User != app.User || oapp.Group != app.Group ||
@@ -512,7 +518,7 @@ public class Configuration
             oapp.Environment != null && app.Environment != null &&
            !oapp.Environment.Keys.All(key => app.Environment.ContainsKey(key) && app.Environment[key] == oapp.Environment[key]) ||
             oapp.IdleTimeout != app.IdleTimeout || oapp.Recycle != app.Recycle ||
-            (oapp.Disabled || oldDisabled) != (app.Disabled || Disabled);
+            (oapp.Offline || oldOffline) != (app.Offline || Offline);
     }
 
     public async Task LoadAsync(bool useMutex = true)
@@ -532,8 +538,8 @@ public class Configuration
                 var ouser = User;
                 User = config.User;
                 Group = config.Group;
-                var oldDisabled = Disabled;
-                Disabled = config.Disabled;
+                var oldOffline = Offline;
+                Offline = config.Offline;
                 Syslog = config.Syslog;
                 FailureInterval = config.FailureInterval;
                 FailureLimit = config.FailureLimit;
@@ -603,7 +609,7 @@ public class Configuration
                     if (oi < oldApps.Count && oldApps[oi].Name.Equals(app.Name, StringComparison.OrdinalIgnoreCase))
                     {
                         var oapp = oldApps[oi];
-                        if (IsAppChanged(app, oapp, oldDisabled))
+                        if (IsAppChanged(app, oapp, oldOffline))
                         {
 #if Server
                             if (oapp.Proxy != null)
@@ -702,8 +708,8 @@ public class Configuration
                 var ouser = User;
                 User = config.User;
                 Group = config.Group;
-                var oldDisabled = Disabled;
-                Disabled = config.Disabled;
+                var oldOffline = Offline;
+                Offline = config.Offline;
                 Syslog = config.Syslog;
                 FailureInterval = config.FailureInterval;
                 FailureLimit = config.FailureLimit;
@@ -749,7 +755,7 @@ public class Configuration
                     if (oi < oldApps.Count && oldApps[oi].Name.Equals(app.Name, StringComparison.OrdinalIgnoreCase))
                     {
                         var oapp = oldApps[oi];
-                        if (IsAppChanged(app, oapp, oldDisabled))
+                        if (IsAppChanged(app, oapp, oldOffline))
                         {
 #if Server
                             if (oapp.Proxy != null)
@@ -807,7 +813,7 @@ public class Configuration
     public void Listen(Application app)
     {
 #if Server
-        if (!IsShuttingDown && !app.Disabled && !Disabled)
+        if (!IsShuttingDown && !app.Offline && !Offline)
         {
             var server = new Proxy(app);
             var listener = Task.Run(async () =>
@@ -828,7 +834,7 @@ public class Configuration
     public async Task ListenAsync(Application app)
     {
 #if Server
-        if (!IsShuttingDown && !app.Disabled && !Disabled)
+        if (!IsShuttingDown && !app.Offline && !Offline)
         {
             var server = new Proxy(app);
             var listener = Task.Run(async () =>
@@ -979,7 +985,7 @@ public class Configuration
             var oapp = Applications?[app.Name];
             if (oapp != null)
             {
-                if (IsAppChanged(app, oapp, Disabled))
+                if (IsAppChanged(app, oapp, Offline))
                 {
 #if Server
                     if (oapp.Proxy != null)
@@ -1019,7 +1025,7 @@ public class Configuration
             var oapp = Applications?[app.Name];
             if (oapp != null)
             {
-                if (IsAppChanged(app, oapp, Disabled))
+                if (IsAppChanged(app, oapp, Offline))
                 {
 #if Server
                     if (oapp.Proxy != null)
@@ -1358,7 +1364,7 @@ public class Application
     [DefaultValue(null)]
     public string? Group { get; set; } = null;
     [DefaultValue(false)]
-    public bool Disabled { get; set; } = false;
+    public bool Offline { get; set; } = false;
     [DefaultValue(Status.Stopped)]
     public Status Status { get; set; } = Status.Stopped;
     [DefaultValue(null)]
@@ -1378,7 +1384,7 @@ public class Application
         app.Assembly = Assembly;
         app.Command = Command;
         app.Dirty = Dirty;
-        app.Disabled = Disabled;
+        app.Offline = Offline;
         app.EnableHttp3 = EnableHttp3;
         app.Environment = Environment;
         app.Error = Error;
@@ -1409,8 +1415,8 @@ public class Application
             app.Status = status; app.Error = error;
             if (disable)
             {
-                disableChanged = !app.Disabled;
-                app.Disabled = true;
+                disableChanged = !app.Offline;
+                app.Offline = true;
             }
             config.Save(true, false);
             if (disableChanged && load) _ = Task.Run(() => Configuration.Current.Load(false));
@@ -1428,8 +1434,8 @@ public class Application
             app.Status = status; app.Error = error;
             if (disable)
             {
-                disableChanged = !app.Disabled;
-                app.Disabled = true;
+                disableChanged = !app.Offline;
+                app.Offline = true;
             }
             await config.SaveAsync(true, false);
             if (disableChanged && load) _ = Task.Run(async () => Configuration.Current.LoadAsync(false));
@@ -1524,15 +1530,15 @@ public static class AspServer
 {
     public static Configuration Configuration => Configuration.Current;
 
-    static void SetDisabled(string appId, bool disabled)
+    static void SetOffline(string appId, bool disabled)
     {
         if (appId == null)
         {
             using var mutex = Configuration.Lock();
             var config = Configuration.LoadConfig();
-            if (config != null && config.Disabled != disabled)
+            if (config != null && config.Offline != disabled)
             {
-                config.Disabled = disabled;
+                config.Offline = disabled;
                 config.Save(true, false);
                 Configuration.Load(false);
             }
@@ -1541,23 +1547,23 @@ public static class AspServer
         {
             using var mutex = Configuration.Lock();
             var config = Configuration.LoadConfig();
-            if (config != null && config.Applications != null && config.Applications[appId].Disabled != disabled)
+            if (config != null && config.Applications != null && config.Applications[appId].Offline != disabled)
             {
-                config.Applications[appId].Disabled = disabled;
+                config.Applications[appId].Offline = disabled;
                 config.Save(true, false);
                 Configuration.Load(false);
             }
         }
     }
-    static async Task SetDisabledAsync(string appId, bool disabled)
+    static async Task SetOfflineAsync(string appId, bool disabled)
     {
         if (appId == null)
         {
             using var mutex = await Configuration.LockAsync();
             var config = await Configuration.LoadConfigAsync();
-            if (config != null && config.Disabled != disabled)
+            if (config != null && config.Offline != disabled)
             {
-                config.Disabled = disabled;
+                config.Offline = disabled;
                 await config.SaveAsync(true, false);
                 await Configuration.LoadAsync(false);
             }
@@ -1566,24 +1572,24 @@ public static class AspServer
         {
             using var mutex = await Configuration.LockAsync();
             var config = await Configuration.LoadConfigAsync();
-            if (config != null && config.Applications != null && config.Applications[appId].Disabled != disabled)
+            if (config != null && config.Applications != null && config.Applications[appId].Offline != disabled)
             {
-                config.Applications[appId].Disabled = disabled;
+                config.Applications[appId].Offline = disabled;
                 await config.SaveAsync(true, false);
                 await Configuration.LoadAsync(false);
             }
         }
     }
 
-    public static void Start(string appId = null) => SetDisabled(appId, false);
-    public static void Stop(string appId = null) => SetDisabled(appId, true);
+    public static void Start(string appId = null) => SetOffline(appId, false);
+    public static void Stop(string appId = null) => SetOffline(appId, true);
     public static void Restart(string appId = null)
     {
         Stop(appId);
         Start(appId);
     }
-    public static async Task StartAsync(string appId = null) => await SetDisabledAsync(appId, false);
-    public static async Task StopAsync(string appId = null) => await SetDisabledAsync(appId, true);
+    public static async Task StartAsync(string appId = null) => await SetOfflineAsync(appId, false);
+    public static async Task StopAsync(string appId = null) => await SetOfflineAsync(appId, true);
     public static async Task RestartAsync(string appId = null)
     {
         await StopAsync(appId);
@@ -1595,7 +1601,7 @@ public static class AspServer
         using var mutex = Configuration.Lock();
         if (appId == null)
         {
-            return Configuration.Disabled ? AspNetCoreSharedServer.Status.Running : AspNetCoreSharedServer.Status.Stopped;
+            return Configuration.Offline ? AspNetCoreSharedServer.Status.Running : AspNetCoreSharedServer.Status.Stopped;
         }
         else
         {
@@ -1608,7 +1614,7 @@ public static class AspServer
         using var mutex = await Configuration.LockAsync();
         if (appId == null)
         {
-            return Configuration.Disabled ? AspNetCoreSharedServer.Status.Running : AspNetCoreSharedServer.Status.Stopped;
+            return Configuration.Offline ? AspNetCoreSharedServer.Status.Running : AspNetCoreSharedServer.Status.Stopped;
         }
         else
         {
@@ -1621,7 +1627,7 @@ public static class AspServer
     public static async Task ShutdownAsync() => await Configuration.ShutdownAsync();
     public static int FindFreePort() => Configuration.FindFreePort();
     public static async Task<int> FindFreePortAsync() => await Configuration.FindFreePortAsync();
-    public static AsyncProcessLockOld Lock() => Configuration.Lock();
-    public static Task<AsyncProcessLockOld> LockAsync() => Configuration.LockAsync();
+    public static IDisposable Lock() => Configuration.Lock();
+    public static Task<IDisposable> LockAsync() => Configuration.LockAsync();
 
 }

@@ -15,7 +15,7 @@ using System.Threading.Tasks;
 using AspNetCoreSharedServer.Util;
 using Hardware.Info;
 using Mono.Cecil;
-using NeoSmart.AsyncLock;
+using EstrellasDeEsperanza.AsyncLock;
 
 namespace AspNetCoreSharedServer;
 
