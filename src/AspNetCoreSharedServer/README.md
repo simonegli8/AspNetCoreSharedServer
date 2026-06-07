@@ -2,7 +2,7 @@
 
 [![NuGet](https://img.shields.io/nuget/v/AspNetCoreSharedServer.svg)](https://www.nuget.org/packages/AspNetCoreSharedServer)
 
-A ASP.NET Core server for Linux & macOS that starts Kestrel on demand and stops it when idle. For use when hosting
+An ASP.NET Core server for Linux & macOS that starts Kestrel on demand and stops it when idle. For use when hosting
 ASP.NET Core in a shared hosting environment behind a proxy like Apache or Nginx, where Kestrel should not 
 run as a permanent Systemd service using resources, but should be started on demand and shutdown when idle. 
 
