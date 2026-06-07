@@ -64,7 +64,7 @@ name in `/etc/aspnet-server`. When the configuration is changed, changes are app
 - `WorkingDirectory` an optional working directory for the Kestrel process. If not specified, the path of `Assembly` will be used.
 - `Arguments` are optional command line arguments passed to the application.
 - `Urls` is the original URL that the application will respond to. This are the original urls the main server (Apache or NGINX) is
-- listening on. This value will be passed to the Kestrel process in the environment variable ORIGINAL_URLS.
+  listening on. This value will be passed to the Kestrel process in the environment variable ORIGINAL_URLS.
 - `ListenUrls` are the URLs that this Application will listen on. This is where the proxy server (Apache or NGINX) can forward
   requests to. You can omit the port in this urls and AspNetCoreSharedServer will automatically assign a port.
 - `IdleTimeout` is the time in seconds or JSON time value after which the application will be stopped when it is idle.
