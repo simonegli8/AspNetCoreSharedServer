@@ -127,11 +127,13 @@ public class Server
             return;
         }
 
-        info.WorkingDirectory = Application.Assembly.Contains(Path.DirectorySeparatorChar) ?
-            Path.GetDirectoryName(Application.Assembly) :
-                (OSInfo.IsWindows ? Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments) :
-                    (OSInfo.IsMac ? $"/Users/{user}" :
-                        (user == "root" ? "/root" : $"/home/{user}")));
+        info.WorkingDirectory = !string.IsNullOrEmpty(Application.WorkingDirectory) ?
+            Application.WorkingDirectory :
+            Application.Assembly.Contains(Path.DirectorySeparatorChar) ?
+                Path.GetDirectoryName(Application.Assembly) :
+                    (OSInfo.IsWindows ? Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments) :
+                        (OSInfo.IsMac ? $"/Users/{user}" :
+                            (user == "root" ? "/root" : $"/home/{user}")));
         bool dotnet = IsDotnet;
         var arguments = Application.Arguments
             ?.Replace("${httpport}", HttpPort.ToString())

@@ -35,7 +35,7 @@ public class Configuration
 {
     public const bool AllowOnlyRootToCreateApplications = true;
     public const string WwwData = "www-data";
-    public static readonly TimeSpan LockTimeout = TimeSpan.FromSeconds(15);
+    public static readonly TimeSpan LockTimeout = TimeSpan.FromMinutes(2);
     public static readonly string LockName = $"EstrellasDeEsperanza{Path.DirectorySeparatorChar}aspnet-server";
 
     public class SyslogConfiguration
@@ -1349,6 +1349,8 @@ public class Application
     [DefaultValue(null)]
     public Dictionary<string, string>? Environment { get; set; } = new Dictionary<string, string>();
     public string Assembly { get; set; } = string.Empty;
+    [DefaultValue(null)]
+    public string? WorkingDirectory {  get; set; } = null;
     [DefaultValue(null)]
     public string? Path { get; set; } = null;
     [DefaultValue("")]

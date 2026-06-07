@@ -41,6 +41,7 @@ name in `/etc/aspnet-server`. When the configuration is changed, changes are app
     {
       "Name": "MyApp",
       "Assembly": "/Path/To/ASPNETCoreApp.dll",
+      "WorkingDirectory": "/Path/To",
       "Arguments": "",
       "Urls": "http://original-domain.org",
       "ListenUrls": "http://localhost:10000",
@@ -60,38 +61,41 @@ name in `/etc/aspnet-server`. When the configuration is changed, changes are app
 ```
 - `Name` specifies the name of the application. It must be unique.
 - `Assembly` denotes the path to the ASP.NET Core application DLL.
+- `WorkingDirectory` an optional working directory for the Kestrel process. If not specified, the path of `Assembly` will be used.
 - `Arguments` are optional command line arguments passed to the application.
-- `Urls` is the original URL that the application will respond to. This are the urls as received by the proxy server.
-- `ListenUrls` are the URLs that this Application will listen on. This is where the proxy server will forward requests to.
-  You can omit the port in this urls and AspNetCoreSharedServer will automatically assign a port.
+- `Urls` is the original URL that the application will respond to. This are the original urls the main server (Apache or NGINX) is
+- listening on. This value will be passed to the Kestrel process in the environment variable ORIGINAL_URLS.
+- `ListenUrls` are the URLs that this Application will listen on. This is where the proxy server (Apache or NGINX) can forward
+  requests to. You can omit the port in this urls and AspNetCoreSharedServer will automatically assign a port.
 - `IdleTimeout` is the time in seconds or JSON time value after which the application will be stopped when it is idle.
 - `Recycle` is the time in seconds or JSON time value after which the application will be restarted, regardless of activity.
 - `Environment` is a dictionary of environment variables that will be set for the application when it is started.
-- `Offline` if true, the application or the server is disabled.
+- `Offline` if set to true, the application or the server will be disabled and set offline.
 - `Syslog` optional Syslog configuration.
 - `FailureLimit` number of failures within `FailureInterval` in order to disable app pool.
 - `FailureInterval` time span within to count the number of failures.
-- `MemoryLowThreshold` a double value between 0 and 1 indicating the percentage of occupied memry when `IdleTimeout`
+- `MemoryLowThreshold` a double value between 0 and 1 indicating the percentage of occupied memory when `IdleTimeout`
   should switch to the `IdleTimeoutOnLowMemory` value. So you can lower `IdleTimeout` when memory is low, so the server
   uses fewer RAM.
 
 The individual applications can also be placed in separate json files, named after the applications name like so:
 ```
 {
-    "Name": "MyApp",
-    "Assembly": "/Path/To/ASPNETCoreApp.dll",
-    "Arguments": "",
-    "Urls": "http://original-domain.org",
-    "ListenUrls": "http://localhost:10000",
-    "Environment": {
+  "Name": "MyApp",
+  "Assembly": "/Path/To/ASPNETCoreApp.dll",
+  "WorkingDirectory": "/Path/To",
+  "Arguments": "",
+  "Urls": "http://original-domain.org",
+  "ListenUrls": "http://localhost:10000",
+  "Environment": {
     "ASPNETCORE_ENVIRONMENT": "Production"
-    }
-    "IdleTimeout": 300,
-    "Recycle": 1200,
-    "Disabled": false,
-    "User": "www-data",
-    "Group": "www-data",
-    "Status": "Running"
+  }
+  "IdleTimeout": 300,
+  "Recycle": 1200,
+  "Disabled": false,
+  "User": "www-data",
+  "Group": "www-data",
+  "Status": "Running"
 } 
 ```
 This would be placed in `/etc/aspnet-server/MyApp.json`. Note that `aspnet-server install` sets the permissions of
@@ -111,15 +115,16 @@ using AspNetCoreSharedServer;
 ...
 var app = new Application()
 {
-	Name = "Name of the ASP.NET Core application",
-	Assembly = "Startup Assembly",
-	Arguments = "Startup Arguments",
-	Environment = new Dictionary<string, string>()
-	{
-        { "ASPNETCORE_ENVIRONMENT", "Production" }
-	},
-	ListenUrls = "http://localhost:10000",
-	Urls = "http://original-domain.org",
+  Name = "Name of the ASP.NET Core application",
+  Assembly = "/Path/To/StartupAssembly.dll",
+  WorkingDirectory = "Path/To",
+  Arguments = "Startup Arguments",
+  Environment = new Dictionary<string, string>()
+  {
+    { "ASPNETCORE_ENVIRONMENT", "Production" }
+  },
+  ListenUrls = "http://localhost:10000",
+  Urls = "http://original-domain.org",
 };
 AspServer.Configuration.Update(app);
 or
@@ -162,7 +167,7 @@ If you do non atomic stuff with AspServer.Configuration, you must enclose it in 
 one process can modify `configuration.json`:
 
 ```
-using (var mutex = AspServer.Mutex.Lock()) {
+using (var mutex = AspServer.Lock()) {
     AspServer.Configuration.Load();
 
     code that manupulates AspServer.Configuration ...
@@ -172,7 +177,7 @@ using (var mutex = AspServer.Mutex.Lock()) {
 
 or
 
-using (var mutex = await AspServer.Mutex.LockAsync()) {
+using (var mutex = await AspServer.LockAsync()) {
     await AspServer.Configuration.LoadAsync();
 
     code that manupulates AspServer.Configuration ...
