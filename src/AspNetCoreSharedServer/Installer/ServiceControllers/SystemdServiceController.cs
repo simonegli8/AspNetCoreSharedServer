@@ -196,16 +196,19 @@ WantedBy=multi-user.target
 		return this[desc.ServiceId];
 	}
 
-	public override void Remove(string serviceId)
-	{
-		var file = Path.Combine(ServicesDirectory, $"{serviceId}.service");
-		if (File.Exists(file))
-		{
-			File.Delete(file);
-			Shell.Exec($"systemctl reload {serviceId}.service");
-		}
-	}
+    public override void Remove(string serviceId)
+    {
+        ChangeStatus(serviceId, OSServiceStatus.Stopped);
+        Disable(serviceId);
 
-	public override bool IsInstalled => OSInfo.IsSystemd;
+        var file = Path.Combine(ServicesDirectory, $"{serviceId}.service");
+        if (File.Exists(file))
+        {
+            File.Delete(file);
+            Shell.Exec($"systemctl daemon-reload");
+        }
+    }
+
+    public override bool IsInstalled => OSInfo.IsSystemd;
 	public Shell Shell => Shell.Default;
 }

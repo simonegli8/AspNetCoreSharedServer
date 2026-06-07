@@ -137,7 +137,7 @@ public class Installer
     public static async Task Install()
     {
         // Remove old aspnetcore-shared-server
-        if (!File.Exists(Configuration.Current.ConfigPathOld))
+        if (File.Exists(Configuration.Current.ConfigPathOld))
         {
             // import old config path /etc/aspnetcore if it exists to /etc/aspnet-server
             var path = Path.GetDirectoryName(Configuration.Current.ConfigPath);

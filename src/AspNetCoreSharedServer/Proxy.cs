@@ -321,7 +321,7 @@ public class Proxy
                     var server = await StartServerAsync();
                     if (server != null && !Cancel.IsCancellationRequested && !server.TcpCancel.IsCancellationRequested)
                     {
-                        var task = server.CopyAsync(client, await destination(server), server.TcpCancel);
+                        _ = server.CopyAsync(client, await destination(server), server.TcpCancel);
                     }
                 }
             }

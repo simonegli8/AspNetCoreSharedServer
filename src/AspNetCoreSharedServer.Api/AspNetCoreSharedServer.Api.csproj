@@ -38,7 +38,7 @@
         <!--<PackageReference Include="Mono.Posix" Version="7.1.0-final.1.21458.1" />
 		<PackageReference Include="Mono.Unix" Version="7.1.0-final.1.21458.1" />-->
 		<PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
-        <PackageReference Include="EstrellasDeEsperanza.AsyncLock" Version="4.0.5" />
+        <PackageReference Include="EstrellasDeEsperanza.AsyncLock" Version="4.0.7" />
     </ItemGroup>
 
     <ItemGroup>

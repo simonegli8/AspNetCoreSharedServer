@@ -405,9 +405,15 @@ public class Server
             var t1 = Pump(srcStream, destStream, linkedCts.Token); // client → server
             var t2 = Pump(destStream, srcStream, linkedCts.Token); // server → client
 
-            await Task.WhenAny(t1, t2);
-            cts.Cancel();
-            await Task.WhenAll(t1.ContinueWith(t => { }), t2.ContinueWith(t => { }));
+            try
+            {
+                await Task.WhenAny(t1, t2);
+                cts.Cancel();
+                await Task.WhenAll(t1, t2);
+            } catch (Exception ex)
+            {
+                Logger.LogWarning($"Exception when copying data {ex.Message}");
+            }
         }
     }
 
@@ -420,7 +426,7 @@ public class Server
             {
                 int read = await src.ReadAsync(buffer, 0, buffer.Length, ct);
                 if (read == 0)
-                    break;          // remote closed
+                    break; // remote closed
                 await dst.WriteAsync(buffer, 0, read, ct);
                 await dst.FlushAsync(ct);
             }

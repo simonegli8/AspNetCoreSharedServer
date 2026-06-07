@@ -36,7 +36,7 @@ public class Configuration
     public const bool AllowOnlyRootToCreateApplications = true;
     public const string WwwData = "www-data";
     public static readonly TimeSpan LockTimeout = TimeSpan.FromSeconds(15);
-    public const string LockName = "aspnet-server";
+    public static readonly string LockName = $"EstrellasDeEsperanza{Path.DirectorySeparatorChar}aspnet-server";
 
     public class SyslogConfiguration
     {
@@ -224,8 +224,8 @@ public class Configuration
     public int FailureLimit { get; set; } = 5;
     int loadEntered = 0;
 
-    static AsyncMutexLock @lock = null;
-    public static AsyncMutexLock MutexLock => @lock ??= new AsyncMutexLock(LockName);
+    static AsyncMutexLock? @lock = null;
+    public static AsyncMutexLock MutexLock => @lock ??= new AsyncMutexLock(LockName, MutexScope.Machine);
     public static Task<IDisposable> LockAsync(CancellationToken cancel = default) =>
         MutexLock.LockAsync(CancellationTokenSource.CreateLinkedTokenSource(cancel,
             new CancellationTokenSource(LockTimeout).Token).Token);
