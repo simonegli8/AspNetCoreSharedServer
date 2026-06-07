@@ -128,6 +128,14 @@ or
 AspServer.Configuration.Remove(app);
 or
 AspServer.Configuration.Remove("App Name");
+or 
+await AspServer.Configuration.UpdateAsync(app);
+or
+await AspServer.Configuration.AddAsync(app);
+or
+await AspServer.Configuration.RemoveAsync(app);
+or
+await AspServer.Configuration.RemoveAsync("App Name");
 ```
 
 Or to lookup an application:
@@ -136,6 +144,9 @@ Or to lookup an application:
 using AspNetCoreSharedServer;
 ...
 AspServer.Configuration.Load();
+or
+await AspServer.Configuration.LoadAsync();
+
 var app = AspServer.Configuration.Applications["Name of Application"];
 ...
 ```
@@ -143,17 +154,29 @@ var app = AspServer.Configuration.Applications["Name of Application"];
 To find a free IP port:
 ```
 var port = AspServer.FindFreePort();
+or
+var port = await AspServer.FindFreePortAsync();
 ```
 
 If you do non atomic stuff with AspServer.Configuration, you must enclose it in a mutex lock, so always only
 one process can modify `configuration.json`:
 
 ```
-using (var mutex = AspServer.Mutex) {
+using (var mutex = AspServer.Mutex.Lock()) {
     AspServer.Configuration.Load();
 
     code that manupulates AspServer.Configuration ...
     
     AspServer.Configuration.Save();
+}
+
+or
+
+using (var mutex = await AspServer.Mutex.LockAsync()) {
+    await AspServer.Configuration.LoadAsync();
+
+    code that manupulates AspServer.Configuration ...
+    
+    await AspServer.Configuration.SaveAsync();
 }
 ```
