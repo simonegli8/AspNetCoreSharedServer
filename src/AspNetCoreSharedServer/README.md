@@ -170,7 +170,7 @@ one process can modify `configuration.json`:
 using (var mutex = AspServer.Lock()) {
     AspServer.Configuration.Load();
 
-    code that manupulates AspServer.Configuration ...
+    code that manipulates AspServer.Configuration ...
     
     AspServer.Configuration.Save();
 }
@@ -180,7 +180,7 @@ or
 using (var mutex = await AspServer.LockAsync()) {
     await AspServer.Configuration.LoadAsync();
 
-    code that manupulates AspServer.Configuration ...
+    code that manipulates AspServer.Configuration ...
     
     await AspServer.Configuration.SaveAsync();
 }
