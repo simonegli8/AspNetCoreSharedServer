@@ -68,6 +68,9 @@ name in `/etc/aspnet-server`. When the configuration is changed, changes are app
 - `Syslog` optional Syslog configuration.
 - `FailureLimit` number of failures within `FailureInterval` in order to disable app pool.
 - `FailureInterval` time span within to count the number of failures.
+- `MemoryLowThreshold` a double value between 0 and 1 indicating the percentage of occupied memry when `IdleTimeout`
+  should switch to the `IdleTimeoutOnLowMemory` value. So you can lower `IdleTimeout` when memory is low, so the server
+  uses fewer RAM.
 
 The individual applications can also be placed in separate json files, named after the applications name like so:
 ```
