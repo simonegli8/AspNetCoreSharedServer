@@ -51,14 +51,21 @@ public class Program
                 {
                     if (args.Length == 1)
                     {
-                        Installer.ServiceController.Start(Installer.ServiceId);
                         if (Installer.ServiceController.Info(Installer.ServiceId)?.Status == OSServiceStatus.Running)
                         {
-                            Console.WriteLine("aspnet-server started");
+                            Console.WriteLine("aspnet-server is already running.");
                         }
                         else
                         {
-                            Console.WriteLine("Failed to start aspnet-server");
+                            Installer.ServiceController.Start(Installer.ServiceId);
+                            if (Installer.ServiceController.Info(Installer.ServiceId)?.Status == OSServiceStatus.Running)
+                            {
+                                Console.WriteLine("aspnet-server started.");
+                            }
+                            else
+                            {
+                                Console.WriteLine("Failed to start aspnet-server.");
+                            }
                         }
                     }
                     else
@@ -91,14 +98,21 @@ public class Program
                 {
                     if (args.Length == 1)
                     {
-                        Installer.ServiceController.Stop(Installer.ServiceId);
                         if (Installer.ServiceController.Info(Installer.ServiceId)?.Status == OSServiceStatus.Stopped)
                         {
-                            Console.WriteLine("aspnet-server stopped");
+                            Console.WriteLine("aspnet-server is already stopped.");
                         }
                         else
                         {
-                            Console.WriteLine("Failed to stop aspnet-server");
+                            Installer.ServiceController.Stop(Installer.ServiceId);
+                            if (Installer.ServiceController.Info(Installer.ServiceId)?.Status == OSServiceStatus.Stopped)
+                            {
+                                Console.WriteLine("aspnet-server stopped.");
+                            }
+                            else
+                            {
+                                Console.WriteLine("Failed to stop aspnet-server.");
+                            }
                         }
                     }
                     else
