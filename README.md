@@ -67,7 +67,7 @@ name in `/etc/aspnet-server`. When the configuration is changed, changes are app
   listening on. This value will be passed to the Kestrel process in the environment variable ORIGINAL_URLS.
 - `ListenUrls` are the URLs that this Application will listen on. This is where the proxy server (Apache or NGINX) can forward
   requests to. You can omit the port in this urls and AspNetCoreSharedServer will automatically assign a port.
-- `IdleTimeout` is the time in seconds or JSON time value after which the application will be stopped when it is idle.
+- `IdleTimeout` is the time in seconds or JSON time value after which an application will be stopped when it is idle.
 - `Recycle` is the time in seconds or JSON time value after which the application will be restarted, regardless of activity.
 - `Environment` is a dictionary of environment variables that will be set for the application when it is started.
 - `Offline` if set to true, the application or the server will be disabled and set offline.
