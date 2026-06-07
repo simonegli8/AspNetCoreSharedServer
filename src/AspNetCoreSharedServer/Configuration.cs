@@ -264,7 +264,7 @@ public class Configuration
                 catch (JsonException ex)
                 {
 #if Server
-                    Logger.LogError(ex, $"Error parsing {Path.GetFileName(ConfigPath)}; {ex.Message}");
+                    Logger?.LogError(ex, $"Error parsing {Path.GetFileName(ConfigPath)}; {ex.Message}");
 #endif
                     return null;
                 }
@@ -299,7 +299,7 @@ public class Configuration
                             catch (JsonException ex)
                             {
 #if Server
-                                Logger.LogError(ex, $"Error parsing {Path.GetFileName(file)}; {ex.Message}");
+                                Logger?.LogError(ex, $"Error parsing {Path.GetFileName(file)}; {ex.Message}");
 #else
                                 throw;
 #endif
@@ -308,7 +308,7 @@ public class Configuration
                             if (app == null)
                             {
 #if Server
-                                Logger.LogError($"Error parsing {Path.GetFileName(file)}.");
+                                Logger?.LogError($"Error parsing {Path.GetFileName(file)}.");
 #else
                                 throw new InvalidOperationException($"Error parsing {Path.GetFileName(file)}.");
 #endif
@@ -402,7 +402,7 @@ public class Configuration
                 catch (JsonException ex)
                 {
 #if Server
-                    Logger.LogError(ex, $"Error parsing {Path.GetFileName(ConfigPath)}; {ex.Message}");
+                    Logger?.LogError(ex, $"Error parsing {Path.GetFileName(ConfigPath)}; {ex.Message}");
 #endif
                     return null;
                 }
@@ -438,7 +438,7 @@ public class Configuration
                             catch (JsonException ex)
                             {
 #if Server
-                                Logger.LogError(ex, $"Error parsing {Path.GetFileName(file)}; {ex.Message}");
+                                Logger?.LogError(ex, $"Error parsing {Path.GetFileName(file)}; {ex.Message}");
 #else
                                 throw;
 #endif
@@ -447,7 +447,7 @@ public class Configuration
                             if (app == null)
                             {
 #if Server
-                                Logger.LogError($"Error parsing {Path.GetFileName(file)}.");
+                                Logger?.LogError($"Error parsing {Path.GetFileName(file)}.");
 #else
                                 throw new InvalidOperationException($"Error parsing {Path.GetFileName(file)}.");
 #endif
@@ -555,7 +555,7 @@ public class Configuration
                     await config.SaveAsync(true, false);
 
                     // If the command is Shutdown, we should shutdown the server.
-                    Logger.LogInformation("Received shutdown command, shutting down server.");
+                    Logger?.LogInformation("Received shutdown command, shutting down server.");
                     await ShutdownAsync();
 
                     return;
@@ -567,7 +567,7 @@ public class Configuration
                     await config.SaveAsync(true, false);
 
                     // If the command is Restart, we should restart the server.
-                    Logger.LogInformation("Received restart command, restarting server.");
+                    Logger?.LogInformation("Received restart command, restarting server.");
                     await RestartAsync();
 
                     return;
@@ -585,7 +585,7 @@ public class Configuration
                 {
                     if (newApps.Any(app => !string.IsNullOrEmpty(app.User) || !string.IsNullOrEmpty(app.Group)))
                     {
-                        Logger.LogError("Cannot set User or Group of Application when not running AspNetCoreSharedServer as root.");
+                        Logger?.LogError("Cannot set User or Group of Application when not running AspNetCoreSharedServer as root.");
                         return;
                     }
                 }
@@ -682,7 +682,7 @@ public class Configuration
                     config.Save(true, false);
 
                     // If the command is Shutdown, we should shutdown the server.
-                    Logger.LogInformation("Received shutdown command, shutting down server.");
+                    Logger?.LogInformation("Received shutdown command, shutting down server.");
                     Shutdown();
 
                     return;
@@ -694,7 +694,7 @@ public class Configuration
                     config.Save(true, false);
 
                     // If the command is Restart, we should restart the server.
-                    Logger.LogInformation("Received restart command, restarting server.");
+                    Logger?.LogInformation("Received restart command, restarting server.");
                     Restart();
 
                     return;
@@ -730,7 +730,7 @@ public class Configuration
                 {
                     if (newApps.Any(app => !string.IsNullOrEmpty(app.User) || !string.IsNullOrEmpty(app.Group)))
                     {
-                        Logger.LogError("Cannot set User or Group of Application when not running AspNetCoreSharedServer as root.");
+                        Logger?.LogError("Cannot set User or Group of Application when not running AspNetCoreSharedServer as root.");
                         return;
                     }
                 }

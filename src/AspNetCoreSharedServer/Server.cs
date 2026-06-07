@@ -412,7 +412,7 @@ public class Server
                 await Task.WhenAll(t1, t2);
             } catch (Exception ex)
             {
-                Logger.LogWarning($"Exception when copying data {ex.Message}");
+                Logger?.LogWarning($"Exception when copying data {ex.Message}");
             }
         }
     }
