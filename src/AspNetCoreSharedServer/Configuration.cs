@@ -185,7 +185,8 @@ public class Configuration
         Path.Combine(Environment.CurrentDirectory, "applications.json") :
         "/etc/aspnetcore/applications.json";
     [JsonIgnore]
-    public string ConfigPath => OSInfo.IsWindows ? ConfigPathOld :
+    public string ConfigPath => OSInfo.IsWindows ?
+        Path.Combine(Environment.CurrentDirectory, "configuration.json") :
         "/etc/aspnet-server/configuration.json";
 
 #if Server
@@ -589,6 +590,30 @@ public class Configuration
                         return;
                     }
                 }
+                // Ensure only root is allowed to modify configuration.json or there are only applications by owner. 
+                if (!OSInfo.IsWindows)
+                {
+                    var owner = Unix.GetOwnerAndGroup(ConfigPath);
+                    var mode = Unix.GetFilePermissions(ConfigPath);
+                    if ((mode & (UnixFileMode.GroupWrite | UnixFileMode.OtherWrite)) != 0)
+                    {
+                        Logger?.LogError("Only owner of /etc/aspnet-server/configuration.json must be allowed to modify it.");
+                        return;
+                    }
+                    else
+                    {
+                        if (owner.Owner != "root")
+                        {
+                            foreach (var app in newApps)
+                            {
+                                if ((app.User ?? config?.User) != owner.Owner)
+                                {
+                                    await app.SetStatusAsync(Status.Error, $"Only {owner.Owner} allowed as User.", true, false);
+                                }
+                            }
+                        }
+                    }
+                }
 #endif
                 int i = 0, oi = 0;
                 for (i = 0; i < newApps.Count; i++)
@@ -732,6 +757,30 @@ public class Configuration
                     {
                         Logger?.LogError("Cannot set User or Group of Application when not running AspNetCoreSharedServer as root.");
                         return;
+                    }
+                }
+                // Ensure only root is allowed to modify configuration.json or there are only applications by owner. 
+                if (!OSInfo.IsWindows)
+                {
+                    var owner = Unix.GetOwnerAndGroup(ConfigPath);
+                    var mode = Unix.GetFilePermissions(ConfigPath);
+                    if ((mode & (UnixFileMode.GroupWrite | UnixFileMode.OtherWrite)) != 0)
+                    {
+                        Logger?.LogError("Only owner of /etc/aspnet-server/configuration.json must be allowed to modify it.");
+                        return;
+                    }
+                    else
+                    {
+                        if (owner.Owner != "root")
+                        {
+                            foreach (var app in newApps)
+                            {
+                                if ((app.User ?? config?.User) != owner.Owner)
+                                {
+                                    app.SetStatus(Status.Error, $"Only {owner.Owner} allowed as User.", true, false);
+                                }
+                            }
+                        }
                     }
                 }
 #endif

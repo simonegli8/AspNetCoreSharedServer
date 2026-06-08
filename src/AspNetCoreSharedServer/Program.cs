@@ -1,5 +1,6 @@
 using AspNetCoreSharedServer.Log;
 using AspNetCoreSharedServer.Services;
+using EstrellasDeEsperanza.AsyncLock;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Converters;
 using System.Diagnostics;
@@ -14,6 +15,22 @@ public class Program
     {
         var assembly = Assembly.GetExecutingAssembly();
         Console.WriteLine($"aspnet-server {assembly.GetName()?.Version?.ToString(3) ?? "1.0.0"}");
+    }
+
+    static AsyncMutexLock applockmutex = new AsyncMutexLock("AspNetCoreSharedServer.AssertOnlyOneInstance", MutexScope.Machine);
+    static IDisposable applock = null;
+    
+    private static async Task AssertOnlyOneInstance()
+    {
+        try
+        {
+            applock = await applockmutex.LockAsync(TimeSpan.Zero);
+        } catch (TimeoutException)
+        {
+            Console.WriteLine("Another instance of aspnet-server is already running.");
+            Environment.Exit(-10);
+        }
+        AppDomain.CurrentDomain.ProcessExit += (_,_) => applock.Dispose();
     }
     public static async Task Main(string[] args)
     {
@@ -295,6 +312,8 @@ possible values for argument:
         }
 
         PrintVersion();
+
+        await AssertOnlyOneInstance();
 
         Configuration config = Configuration.Current;
         try
