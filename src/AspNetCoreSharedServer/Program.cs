@@ -283,6 +283,19 @@ public class Program
                     }
                     return;
                 }
+                if (args[0].Equals("lock", StringComparison.OrdinalIgnoreCase))
+                {
+                    try
+                    {
+                        using var mylock = Configuration.MutexLock.LockAsync(TimeSpan.Zero);
+                        Console.WriteLine("aspnet-server is not locked.");
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine("aspnet-server is locked.");
+                    }
+                    return;
+                }
 
                 PrintVersion();
                 Console.WriteLine(@"

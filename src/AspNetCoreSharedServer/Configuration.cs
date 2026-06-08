@@ -231,7 +231,7 @@ public class Configuration
         MutexLock.LockAsync(CancellationTokenSource.CreateLinkedTokenSource(cancel,
             new CancellationTokenSource(LockTimeout).Token).Token);
     public static IDisposable Lock(CancellationToken cancel = default) =>
-        MutexLock.LockAsync(CancellationTokenSource.CreateLinkedTokenSource(cancel,
+        MutexLock.Lock(CancellationTokenSource.CreateLinkedTokenSource(cancel,
             new CancellationTokenSource(LockTimeout).Token).Token);
     internal async Task<Configuration?> LoadConfigAsync(bool loadApps = true)
     {
