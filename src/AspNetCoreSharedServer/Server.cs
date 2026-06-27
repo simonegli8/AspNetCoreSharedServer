@@ -394,6 +394,38 @@ public class Server
             Shutdown();
 		}*/
     }
+
+    public byte[] GenerateProxyV2Header(IPAddress srcIp, int srcPort, IPAddress destIp, int destPort)
+    {
+        var srcAddress = srcIp.GetAddressBytes();
+        var destAddress = destIp.GetAddressBytes();
+
+        byte[] header = new byte[16 + srcAddress.Length + destAddress.Length + 4];
+
+        // 1. Signature
+        byte[] magic = { 0x0D, 0x0A, 0x0D, 0x0A, 0x00, 0x0D, 0x0A, 0x51, 0x55, 0x49, 0x54, 0x0A };
+        Buffer.BlockCopy(magic, 0, header, 0, 12);
+
+        // 2. Version/Cmd (0x21) & AF/Proto (0x11 for IPv4 TCP)
+        header[12] = 0x21;
+        header[13] = 0x11;
+
+        // 3. Length (12 bytes for IPv4 endpoints)
+        ushort len = (ushort)(srcAddress.Length + destAddress.Length + 4);
+        header[14] = (byte)(len >> 8);
+        header[15] = (byte)(len & 0xFF);
+
+        // 4. Addresses & Ports (Big Endian)
+        int offset = 16;
+        Buffer.BlockCopy(srcAddress, 0, header, offset, srcAddress.Length); offset += srcAddress.Length;
+        Buffer.BlockCopy(destAddress, 0, header, offset, destAddress.Length); offset += destAddress.Length;
+
+        header[offset++] = (byte)(srcPort >> 8); header[offset++] = (byte)(srcPort & 0xFF);
+        header[offset++] = (byte)(destPort >> 8); header[offset++] = (byte)(destPort & 0xFF);
+
+        return header;
+    }
+
     public async Task CopyAsync(TcpClient source, TcpClient destination, CancellationTokenSource cancel)
     {
         if (source == null || destination == null) return;
@@ -403,9 +435,35 @@ public class Server
         using (var destStream = destination.GetStream())
         using (var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancel.Token, cts.Token))
         {
-            // 3) Start bi‑directional copy tasks
+            // Send proxy header
+            if (Application.EnableProxyHeader == true || Application.EnableProxyV2Header == true)
+            {
+                var externalEp = (IPEndPoint?)source.Client.RemoteEndPoint;
+                var localEp = (IPEndPoint?)destination.Client.LocalEndPoint;
+
+                byte[] proxyHeader;
+                if (externalEp != null && localEp != null)
+                {
+                    if (Application.EnableProxyV2Header == true)
+                    {
+                        // Construct PROXY v2 header
+                        proxyHeader = GenerateProxyV2Header(externalEp.Address, externalEp.Port, localEp.Address, localEp.Port);
+                    }
+                    else
+                    {
+                        // Construct standard PROXY v1 line: PROXY TCP4/6 [Source_IP] [Dest_IP] [Source_Port] [Dest_Port]\r\n
+                        var version = externalEp.Address.AddressFamily == AddressFamily.InterNetworkV6 ? "TCP6" : "TCP4"; 
+                        string proxyHeaderText = $"PROXY {version} {externalEp.Address} {localEp.Address} {externalEp.Port} {localEp.Port}\r\n";
+                        proxyHeader = Encoding.ASCII.GetBytes(proxyHeaderText);
+                    }
+                    // Inject the PROXY header
+                    await destStream.WriteAsync(proxyHeader, 0, proxyHeader.Length, linkedCts.Token);
+                }
+            }
+            
+            // Start bi‑directional copy tasks
             var t1 = Pump(srcStream, destStream, linkedCts.Token); // client → server
-            var t2 = Pump(destStream, srcStream, linkedCts.Token); // server → client
+            var t2 = Pump(destStream, srcStream, linkedCts.Token); // server →  client
 
             try
             {
@@ -419,9 +477,16 @@ public class Server
         }
     }
 
-    static async Task Pump(Stream src, Stream dst, CancellationToken ct)
+    static async Task Pump(NetworkStream src, NetworkStream dst, CancellationToken ct)
     {
-        var buffer = ArrayPool<byte>.Shared.Rent(BufferSize);
+        try
+        {
+            await src.CopyToAsync(dst, ct);
+        }
+        catch (OperationCanceledException) { /* expected on shutdown */ }
+        catch (IOException) { /* connection reset */ }
+    
+        /*var buffer = ArrayPool<byte>.Shared.Rent(BufferSize);
         try
         {
             while (!ct.IsCancellationRequested)
@@ -433,11 +498,11 @@ public class Server
                 await dst.FlushAsync(ct);
             }
         }
-        catch (OperationCanceledException) { /* expected on shutdown */ }
-        catch (IOException) { /* connection reset */ }
+        catch (OperationCanceledException) {  }
+        catch (IOException) { }
         finally
         {
             ArrayPool<byte>.Shared.Return(buffer);
-        }
+        }*/
     }
 }

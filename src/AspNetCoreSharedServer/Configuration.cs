@@ -1406,6 +1406,9 @@ public class Application
     public string Arguments { get; set; } = string.Empty;
     [DefaultValue(null)]
     public bool? EnableHttp3 { get; set; } = null;
+    public bool? EnableProxyHeader { get; set; } = null;
+    public bool? EnableProxyV2Header { get; set; } = null;
+
     [DefaultValue(null)]
     public TimeSpan? IdleTimeout { get; set; } = null;
     [DefaultValue(null)]
@@ -1449,6 +1452,8 @@ public class Application
         app.Urls = Urls;
         app.User = User;
         app.IsSeparateFile = IsSeparateFile;
+        app.EnableProxyHeader = EnableProxyHeader;
+        app.EnableProxyV2Header = EnableProxyV2Header;
 #if Server
         app.Proxy = Proxy;
 #endif
