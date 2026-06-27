@@ -77,6 +77,8 @@ name in `/etc/aspnet-server`. When the configuration is changed, changes are app
 - `MemoryLowThreshold` a double value between 0 and 1 indicating the percentage of occupied memory when `IdleTimeout`
   should switch to the `IdleTimeoutOnLowMemory` value. So you can lower `IdleTimeout` when memory is low, so the server
   uses fewer RAM.
+- `UseProxyProtocol` and `UseProxyV2Protocol`: The server will send a PROXY V1/V2 header to Kestrel. Note that
+  Kestrel does not support this header natively, and you must use a middleware like `Scintillating.ProxyProtocol.Middleware`.
 
 The individual applications can also be placed in separate json files, named after the applications name like so:
 ```
