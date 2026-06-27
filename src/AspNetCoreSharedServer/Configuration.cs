@@ -1406,7 +1406,9 @@ public class Application
     public string Arguments { get; set; } = string.Empty;
     [DefaultValue(null)]
     public bool? EnableHttp3 { get; set; } = null;
+    [DefaultValue(null)]
     public bool? EnableProxyHeader { get; set; } = null;
+    [DefaultValue(null)]
     public bool? EnableProxyV2Header { get; set; } = null;
 
     [DefaultValue(null)]
