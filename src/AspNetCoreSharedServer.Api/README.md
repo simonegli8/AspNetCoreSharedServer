@@ -16,7 +16,7 @@ To show help on usage, execute `sudo aspnet-server -?` or `sudo aspnet-server -h
 
 
 ## Configure AspNetCoreSharedServer
-All the configuration is stored in `/etc/aspnet-server/configuration.json` a and in json files named after the application
+All the configuration is stored in `/etc/aspnet-server/configuration.json` and in json files named after the application
 name in `/etc/aspnet-server`. When the configuration is changed, changes are applied on the fly. The
 `configuration.json` file is defined as follows:
 ```json
