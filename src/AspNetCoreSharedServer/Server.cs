@@ -1,6 +1,11 @@
 ﻿
+using AspNetCoreSharedServer.Util;
+using EstrellasDeEsperanza.AsyncLock;
+using Hardware.Info;
+using Mono.Cecil;
 using System;
 using System.Buffers;
+using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.Contracts;
@@ -12,10 +17,6 @@ using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
-using AspNetCoreSharedServer.Util;
-using Hardware.Info;
-using Mono.Cecil;
-using EstrellasDeEsperanza.AsyncLock;
 
 namespace AspNetCoreSharedServer;
 
@@ -28,17 +29,18 @@ public class Server
     public CancellationTokenSource UdpCancel = new CancellationTokenSource();
 
     static AsyncLock UidLock = new AsyncLock();
-    public async Task<TcpClient> Connect(int port)
+    public async Task<TcpClient> Connect(int port, AddressFamily family)
     {
         if (port > -1)
         {
-            var client = new TcpClient();
+            var client = new TcpClient(family);
             var cancel = new CancellationTokenSource();
             cancel.CancelAfter(30000);
 
+            var loopback = family == AddressFamily.InterNetworkV6 ? IPAddress.IPv6Loopback : IPAddress.Loopback;
             try
             {
-                await client.ConnectAsync(new IPEndPoint(Loopback, port), cancel.Token);
+                await client.ConnectAsync(new IPEndPoint(loopback, port), cancel.Token);
             }
             catch (Exception ex)
             {
@@ -48,7 +50,7 @@ public class Server
                 await Task.Delay(10, cancel.Token);
                 try
                 {
-                    await client.ConnectAsync(new IPEndPoint(Loopback, port), cancel.Token);
+                    await client.ConnectAsync(new IPEndPoint(loopback, port), cancel.Token);
                 }
                 catch (Exception ex)
                 {
@@ -58,20 +60,20 @@ public class Server
         }
         return null;
     }
-    public async Task<TcpClient> HttpDest()
+    public async Task<TcpClient> HttpDest(AddressFamily family)
     {
-        return await Connect(HttpPort);
+        return await Connect(HttpPort, family);
     }
-    public async Task<TcpClient> HttpsDest()
+    public async Task<TcpClient> HttpsDest(AddressFamily family)
     {
-        return await Connect(HttpsPort);
+        return await Connect(HttpsPort, family);
     }
-    public async Task<TcpClient> NetTcpDest()
+    public async Task<TcpClient> NetTcpDest(AddressFamily family)
     {
-        return await Connect(NetTcpPort);
+        return await Connect(NetTcpPort, family);
     }
     public int HttpPort = -1, HttpsPort = -1, NetTcpPort = -1;
-    public UdpClient? QuicHttpDest, QuicHttpsDest;
+    public UdpClient? QuicHttpDestV4, QuicHttpsDestV4, QuicHttpDestV6, QuicHttpsDestV6;
     public DateTime Started = DateTime.Now;
     public long Ticks = DateTime.Now.ToBinary();
     int KestrelRestarts = 0;
@@ -80,8 +82,8 @@ public class Server
     Proxy Proxy;
     public Application Application => Proxy.Application;
     public bool IsDotnet => Application.Assembly.EndsWith(".dll", StringComparison.OrdinalIgnoreCase);
-    public IPAddress Loopback => IsDotnet ? IPAddress.IPv6Loopback : IPAddress.Loopback;
-    public string LoopbackText => IsDotnet ? "[::1]" : "127.0.0.1";
+    public const string LoopbackTextV4 = "127.0.0.1";
+    public const string LoopbackTextV6 = "[::1]";
     Process ServerProcess = new Process();
     //public CancellationTokenSource Cancel = new CancellationTokenSource();
 
@@ -100,21 +102,29 @@ public class Server
 
         if (Proxy.EnableHttp3)
         {
-            if (HttpPort > -1) QuicHttpDest = new UdpClient(new IPEndPoint(Loopback, HttpPort));
-            if (HttpsPort > -1) QuicHttpsDest = new UdpClient(new IPEndPoint(Loopback, HttpsPort));
+            if (HttpPort > -1)
+            {
+                if (Proxy.HasIPv4) QuicHttpDestV4 = new UdpClient(new IPEndPoint(IPAddress.Loopback, HttpPort));
+                if (Proxy.HasIPv6) QuicHttpDestV6 = new UdpClient(new IPEndPoint(IPAddress.IPv6Loopback, HttpPort));
+            }
+            if (HttpsPort > -1)
+            {
+                if (Proxy.HasIPv4) QuicHttpsDestV4 = new UdpClient(new IPEndPoint(IPAddress.Loopback, HttpsPort));
+                if (Proxy.HasIPv6) QuicHttpsDestV6 = new UdpClient(new IPEndPoint(IPAddress.IPv6Loopback, HttpsPort));
+            }
         }
 
         var urls = new StringBuilder();
-        if (Proxy.HasHttp) urls.Append($"http://{LoopbackText}:{HttpPort}");
+        if (Proxy.HasHttp) urls.Append($"http://{LoopbackTextV4}:{HttpPort};http://{LoopbackTextV6}:{HttpPort}");
         if (Proxy.HasHttps)
         {
             if (urls.Length > 0) urls.Append(';');
-            urls.Append($"https://{LoopbackText}:{HttpsPort}");
+            urls.Append($"https://{LoopbackTextV4}:{HttpsPort};https://{LoopbackTextV6}:{HttpsPort}");
         }
         if (Proxy.HasNetTcp)
         {
             if (urls.Length > 0) urls.Append(';');
-            urls.Append($"net.tcp://{LoopbackText}:{NetTcpPort}");
+            urls.Append($"net.tcp://{LoopbackTextV4}:{NetTcpPort};net.tcp://{LoopbackTextV6}:{NetTcpPort}");
         }
         var info = new ProcessStartInfo();
         var user = Application.User ?? Configuration.Current.User;
@@ -139,7 +149,8 @@ public class Server
             ?.Replace("${httpport}", HttpPort.ToString())
             ?.Replace("${httpsport}", HttpsPort.ToString())
             ?.Replace("${nettcpport}", NetTcpPort.ToString())
-            ?.Replace("${loopback}", LoopbackText);
+            ?.Replace("${loopbackV4}", LoopbackTextV4)
+            ?.Replace("${loopbackV6}", LoopbackTextV6);
         uint? uid = null, gid = null;
 
         if (!OSInfo.IsWindows && Unix.IsRoot &&
@@ -395,37 +406,80 @@ public class Server
 		}*/
     }
 
-    public byte[] GenerateProxyV2Header(IPAddress srcIp, int srcPort, IPAddress destIp, int destPort)
+    private static readonly byte[] ProxyV2Signature =
     {
-        var srcAddress = srcIp.GetAddressBytes();
-        var destAddress = destIp.GetAddressBytes();
+        0x0D, 0x0A, 0x0D, 0x0A,
+        0x00, 0x0D, 0x0A, 0x51,
+        0x55, 0x49, 0x54, 0x0A
+    };
 
-        byte[] header = new byte[16 + srcAddress.Length + destAddress.Length + 4];
+    public static byte[] CreateProxyV2Header(
+        IPAddress sourceAddress,
+        IPAddress destinationAddress,
+        ushort sourcePort,
+        ushort destinationPort,
+        ProtocolType protocol)
+    {
+        bool ipv4 = sourceAddress.AddressFamily == AddressFamily.InterNetwork;
+        bool ipv6 = sourceAddress.AddressFamily == AddressFamily.InterNetworkV6;
 
-        // 1. Signature
-        byte[] magic = { 0x0D, 0x0A, 0x0D, 0x0A, 0x00, 0x0D, 0x0A, 0x51, 0x55, 0x49, 0x54, 0x0A };
-        Buffer.BlockCopy(magic, 0, header, 0, 12);
+        if (sourceAddress.AddressFamily != destinationAddress.AddressFamily)
+            throw new ArgumentException(
+                "Source and destination address families must match.");
 
-        // 2. Version/Cmd (0x21) & AF/Proto (0x11 for IPv4 TCP)
-        header[12] = 0x21;
-        header[13] = 0x11;
+        byte familyProtocol = protocol switch
+        {
+            ProtocolType.Tcp when ipv4 => 0x11, // TCP over IPv4
+            ProtocolType.Udp when ipv4 => 0x12, // UDP over IPv4
+            ProtocolType.Tcp when ipv6 => 0x21, // TCP over IPv6
+            ProtocolType.Udp when ipv6 => 0x22, // UDP over IPv6
+            _ => throw new ArgumentException(
+                "Only TCP and UDP over IPv4/IPv6 are supported.")
+        };
 
-        // 3. Length (12 bytes for IPv4 endpoints)
-        ushort len = (ushort)(srcAddress.Length + destAddress.Length + 4);
-        header[14] = (byte)(len >> 8);
-        header[15] = (byte)(len & 0xFF);
+        int addressLength = ipv4 ? 12 : 36;
 
-        // 4. Addresses & Ports (Big Endian)
-        int offset = 16;
-        Buffer.BlockCopy(srcAddress, 0, header, offset, srcAddress.Length); offset += srcAddress.Length;
-        Buffer.BlockCopy(destAddress, 0, header, offset, destAddress.Length); offset += destAddress.Length;
+        byte[] buffer = new byte[16 + addressLength];
 
-        header[offset++] = (byte)(srcPort >> 8); header[offset++] = (byte)(srcPort & 0xFF);
-        header[offset++] = (byte)(destPort >> 8); header[offset++] = (byte)(destPort & 0xFF);
+        int offset = 0;
 
-        return header;
+        // Signature
+        ProxyV2Signature.CopyTo(buffer, offset);
+        offset += 12;
+
+        // Version 2 + PROXY command
+        buffer[offset++] = 0x21;
+
+        // Family + protocol
+        buffer[offset++] = familyProtocol;
+
+        // Address block length
+        BinaryPrimitives.WriteUInt16BigEndian(
+            buffer.AsSpan(offset, 2),
+            (ushort)addressLength);
+        offset += 2;
+
+        // Source address
+        sourceAddress.GetAddressBytes().CopyTo(buffer, offset);
+        offset += ipv4 ? 4 : 16;
+
+        // Destination address
+        destinationAddress.GetAddressBytes().CopyTo(buffer, offset);
+        offset += ipv4 ? 4 : 16;
+
+        // Source port
+        BinaryPrimitives.WriteUInt16BigEndian(
+            buffer.AsSpan(offset, 2),
+            sourcePort);
+        offset += 2;
+
+        // Destination port
+        BinaryPrimitives.WriteUInt16BigEndian(
+            buffer.AsSpan(offset, 2),
+            destinationPort);
+
+        return buffer;
     }
-
     public async Task CopyAsync(TcpClient source, TcpClient destination, CancellationTokenSource cancel)
     {
         if (source == null || destination == null) return;
@@ -444,10 +498,13 @@ public class Server
                 byte[] proxyHeader;
                 if (externalEp != null && localEp != null)
                 {
+                    if (externalEp.Address.AddressFamily != localEp.Address.AddressFamily)
+                        throw new NotSupportedException("Proxy does not support IPv4 and IPv6 mix.");
+
                     if (Application.EnableProxyV2Header == true)
                     {
                         // Construct PROXY v2 header
-                        proxyHeader = GenerateProxyV2Header(externalEp.Address, externalEp.Port, localEp.Address, localEp.Port);
+                        proxyHeader = CreateProxyV2Header(externalEp.Address, localEp.Address, (ushort)externalEp.Port, (ushort)localEp.Port, ProtocolType.Tcp);
                     }
                     else
                     {
@@ -458,6 +515,14 @@ public class Server
                     }
                     // Inject the PROXY header
                     await destStream.WriteAsync(proxyHeader, 0, proxyHeader.Length, linkedCts.Token);
+
+                    if (Application.EnableProxyV2Header == true)
+                    {
+                        Logger.LogInformation("Sent PROXY v2 header");
+                    } else
+                    {
+                        Logger.LogInformation("Sent PROXY v1 header");
+                    }
                 }
             }
             

@@ -55,7 +55,7 @@ public class Proxy
 
     public List<TcpListener> Http = new List<TcpListener>(), Https = new List<TcpListener>(),
         NetTcp = new List<TcpListener>();
-    public UdpClient? QuicHttp, QuicHttps;
+    public UdpClient? QuicHttpV4 = null, QuicHttpsV4 = null, QuicHttpV6 = null, QuicHttpsV6 = null;
     Uri? httpUri = null, httpsUri = null, nettcpUri = null;
     int httpPort = -1, httpsPort = -1, nettcpPort = -1;
 
@@ -72,6 +72,8 @@ public class Proxy
         Recycle = app.Recycle ?? Configuration.Current.Recycle ?? Configuration.GlobalRecycle;
         EnableHttp3 = app.EnableHttp3 ?? EnableHttp3;
     }
+    public bool HasIPv6 = false;
+    public bool HasIPv4 = false;
 
     public async Task ListenAsync()
     {
@@ -145,17 +147,12 @@ public class Proxy
 
 
         bool exception = false;
+
         try
         {
             do
             {
-                if (EnableHttp3)
-                {
-                    if (httpPort > -1) QuicHttp = new UdpClient(httpPort);
-                    if (httpsPort > -1) QuicHttps = new UdpClient(httpsPort);
-                }
-
-                Task? t1 = null, t2 = null, t3 = null, t4 = null;
+                Task? t1 = null, t2 = null, t3 = null, t4 = null, t5 = null, t6 = null;
                 if (HasHttp)
                 {
                     IPAddress? ip;
@@ -173,8 +170,9 @@ public class Proxy
                     if (!ips.Any()) ips = new List<IPAddress>() { IPAddress.Any, IPAddress.IPv6Any };
                     Http.Clear();
                     foreach (var ipadr in ips) Http.Add(new TcpListener(ipadr, httpPort));
-
-                    t1 = ListenAsync(Http, server => server.HttpDest());
+                    if (ips.Any(ip => ip.AddressFamily == AddressFamily.InterNetwork)) HasIPv4 = true;
+                    if (ips.Any(ip => ip.AddressFamily == AddressFamily.InterNetworkV6)) HasIPv6 = true;
+                    t1 = ListenAsync(Http, (addressFamily, server) => server.HttpDest(addressFamily));
                 }
                 if (HasHttps)
                 {
@@ -191,10 +189,12 @@ public class Proxy
                             .Distinct());
                     }
                     if (!ips.Any()) ips = new List<IPAddress>() { IPAddress.Any, IPAddress.IPv6Any };
+                    if (ips.Any(ip => ip.AddressFamily == AddressFamily.InterNetwork)) HasIPv4 = true;
+                    if (ips.Any(ip => ip.AddressFamily == AddressFamily.InterNetworkV6)) HasIPv6 = true;
                     Https.Clear();
                     foreach (var ipadr in ips) Https.Add(new TcpListener(ipadr, httpsPort));
 
-                    t2 = ListenAsync(Https, server => server.HttpsDest());
+                    t2 = ListenAsync(Https, (addressFamily, server) => server.HttpsDest(addressFamily));
                 }
                 if (HasNetTcp)
                 {
@@ -211,15 +211,33 @@ public class Proxy
                             .Distinct());
                     }
                     if (!ips.Any()) ips = new List<IPAddress>() { IPAddress.Any, IPAddress.IPv6Any };
+                    if (ips.Any(ip => ip.AddressFamily == AddressFamily.InterNetwork)) HasIPv4 = true;
+                    if (ips.Any(ip => ip.AddressFamily == AddressFamily.InterNetworkV6)) HasIPv6 = true;
                     NetTcp.Clear();
                     foreach (var ipadr in ips) NetTcp.Add(new TcpListener(ipadr, nettcpPort));
 
-                    t1 = ListenAsync(NetTcp, server => server.NetTcpDest());
+                    t1 = ListenAsync(NetTcp, (addressFamily, server) => server.NetTcpDest(addressFamily));
                 }
-                if (QuicHttp != null) t3 = ListenAsync(QuicHttp, server => server.QuicHttpDest);
-                if (QuicHttps != null) t4 = ListenAsync(QuicHttps, server => server.QuicHttpsDest);
 
-                var tasks = new Task?[] { t1, t2, t3, t4 }
+                if (EnableHttp3)
+                {
+                    if (httpPort > -1)
+                    {
+                        if (HasIPv4) QuicHttpV4 = new UdpClient(httpPort, AddressFamily.InterNetwork);
+                        if (HasIPv6) QuicHttpV6 = new UdpClient(httpPort, AddressFamily.InterNetworkV6);
+                    }
+                    if (httpsPort > -1)
+                    {
+                        if (HasIPv4) QuicHttpsV4 = new UdpClient(httpsPort, AddressFamily.InterNetwork);
+                        if (HasIPv6) QuicHttpsV6 = new UdpClient(httpsPort, AddressFamily.InterNetworkV6);
+                    }
+
+                    if (QuicHttpV4 != null) t3 = ListenAsync(QuicHttpV4, server => server.QuicHttpDestV4);
+                    if (QuicHttpsV4 != null) t4 = ListenAsync(QuicHttpsV4, server => server.QuicHttpsDestV4);
+                    if (QuicHttpV6 != null) t3 = ListenAsync(QuicHttpV6, server => server.QuicHttpDestV6);
+                    if (QuicHttpsV6 != null) t4 = ListenAsync(QuicHttpsV6, server => server.QuicHttpsDestV6);
+                }
+                var tasks = new Task?[] { t1, t2, t3, t4, t5, t6 }
                     .Where(t => t != null)
                     .Select(t => t!)
                     .ToArray();
@@ -294,11 +312,11 @@ public class Proxy
         }
         return Server;
     }
-    public async Task ListenAsync(List<TcpListener> sources, Func<Server, Task<TcpClient>> destination)
+    public async Task ListenAsync(List<TcpListener> sources, Func<AddressFamily, Server, Task<TcpClient>> destination)
     {
         await Task.WhenAll(sources.Select(source => ListenAsync(source, destination)));
     }
-    public async Task ListenAsync(TcpListener source, Func<Server, Task<TcpClient>> destination)
+    public async Task ListenAsync(TcpListener source, Func<AddressFamily, Server, Task<TcpClient>> destination)
     {
         try
         {
@@ -321,7 +339,7 @@ public class Proxy
                     var server = await StartServerAsync();
                     if (server != null && !Cancel.IsCancellationRequested && !server.TcpCancel.IsCancellationRequested)
                     {
-                        _ = server.CopyAsync(client, await destination(server), server.TcpCancel);
+                        _ = server.CopyAsync(client, await destination(client.Client.AddressFamily, server), server.TcpCancel);
                     }
                 }
             }
