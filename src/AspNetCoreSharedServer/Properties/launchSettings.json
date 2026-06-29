@@ -13,7 +13,8 @@
       "commandLineArgs": "/mnt/c/GitHub/AspNetCoreSharedServer/src/AspNetCoreSharedServer/bin/Debug/net10.0/AspNetCoreSharedServer.dll",
       "environmentVariables": {
         "DOTNET_ENVIRONMENT": "Development"
-      }
+      },
+      "distributionName": "Ubuntu-26.04-Test-Clone"
     },
     "Debian-Test": {
       "commandName": "WSL2",

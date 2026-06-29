@@ -34,6 +34,9 @@ public class Server
         if (port > -1)
         {
             var client = new TcpClient(family);
+            var clientV6 = new TcpClient(AddressFamily.InterNetworkV6);
+            //clientDual.Client.DualMode = true;
+            
             var cancel = new CancellationTokenSource();
             cancel.CancelAfter(30000);
 
@@ -44,8 +47,18 @@ public class Server
             }
             catch (Exception ex)
             {
+                if (family == AddressFamily.InterNetwork)
+                {
+                    try
+                    {
+                        await clientV6.ConnectAsync(new IPEndPoint(IPAddress.IPv6Loopback, port), cancel.Token);
+                    }
+                    catch (Exception ex2)
+                    {
+                    }
+                }
             }
-            while (!client.Connected)
+            while (!client.Connected && !clientV6.Connected)
             {
                 await Task.Delay(10, cancel.Token);
                 try
@@ -54,8 +67,21 @@ public class Server
                 }
                 catch (Exception ex)
                 {
+                    if (family == AddressFamily.InterNetwork)
+                    {
+                        try
+                        {
+                            await clientV6.ConnectAsync(new IPEndPoint(IPAddress.IPv6Loopback, port), cancel.Token);
+                        }
+                        catch (Exception ex2)
+                        {
+                        }
+                    }
                 }
             }
+            
+            if (!client.Connected && clientV6.Connected) client = clientV6;
+
             return client;
         }
         return null;
@@ -420,6 +446,8 @@ public class Server
         ushort destinationPort,
         ProtocolType protocol)
     {
+        if (destinationAddress.IsIPv4MappedToIPv6) destinationAddress = destinationAddress.MapToIPv4();
+
         bool ipv4 = sourceAddress.AddressFamily == AddressFamily.InterNetwork;
         bool ipv6 = sourceAddress.AddressFamily == AddressFamily.InterNetworkV6;
 
@@ -492,25 +520,28 @@ public class Server
             // Send proxy header
             if (Application.EnableProxyHeader == true || Application.EnableProxyV2Header == true)
             {
-                var externalEp = (IPEndPoint?)source.Client.RemoteEndPoint;
-                var localEp = (IPEndPoint?)destination.Client.LocalEndPoint;
+                var externalEp = (IPEndPoint)source.Client.RemoteEndPoint!;
+                var localEp = (IPEndPoint)destination.Client.LocalEndPoint!;
+                var localAddress = localEp.Address;
+                if (localAddress.IsIPv4MappedToIPv6) localAddress = localAddress.MapToIPv4();
+                else if (localAddress.Equals(IPAddress.IPv6Loopback) && externalEp.AddressFamily == AddressFamily.InterNetwork) localAddress = IPAddress.Loopback;
 
                 byte[] proxyHeader;
                 if (externalEp != null && localEp != null)
                 {
-                    if (externalEp.Address.AddressFamily != localEp.Address.AddressFamily)
+                    if (externalEp.Address.AddressFamily != localAddress.AddressFamily)
                         throw new NotSupportedException("Proxy does not support IPv4 and IPv6 mix.");
 
                     if (Application.EnableProxyV2Header == true)
                     {
                         // Construct PROXY v2 header
-                        proxyHeader = CreateProxyV2Header(externalEp.Address, localEp.Address, (ushort)externalEp.Port, (ushort)localEp.Port, ProtocolType.Tcp);
+                        proxyHeader = CreateProxyV2Header(externalEp.Address, localAddress, (ushort)externalEp.Port, (ushort)localEp.Port, ProtocolType.Tcp);
                     }
                     else
                     {
                         // Construct standard PROXY v1 line: PROXY TCP4/6 [Source_IP] [Dest_IP] [Source_Port] [Dest_Port]\r\n
-                        var version = externalEp.Address.AddressFamily == AddressFamily.InterNetworkV6 ? "TCP6" : "TCP4"; 
-                        string proxyHeaderText = $"PROXY {version} {externalEp.Address} {localEp.Address} {externalEp.Port} {localEp.Port}\r\n";
+                        var version = externalEp.Address.AddressFamily == AddressFamily.InterNetworkV6 ? "TCP6" : "TCP4";
+                        string proxyHeaderText = $"PROXY {version} {externalEp.Address} {localAddress} {externalEp.Port} {localEp.Port}\r\n";
                         proxyHeader = Encoding.ASCII.GetBytes(proxyHeaderText);
                     }
                     // Inject the PROXY header
