@@ -971,7 +971,7 @@ public class Configuration
                 catch { }
             }
         }
-        // If set permissions to read/write
+        // set permissions
         if (!OSInfo.IsWindows)
         {
             var configDir = Path.GetDirectoryName(ConfigPath);
