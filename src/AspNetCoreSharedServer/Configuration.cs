@@ -962,7 +962,14 @@ public class Configuration
                 if (!string.IsNullOrEmpty(extapp.User ?? User) && Unix.IsRoot) Unix.SetOwnerAndGroup(file, extapp.User ?? User!, AdminGroup);
             }
             catch { }
-            if (!OSInfo.IsWindows) Unix.SetFilePermissions(file, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            if (!OSInfo.IsWindows)
+            {
+                try
+                {
+                    Unix.SetFilePermissions(file, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+                }
+                catch { }
+            }
         }
         // If set permissions to read/write
         if (!OSInfo.IsWindows)
