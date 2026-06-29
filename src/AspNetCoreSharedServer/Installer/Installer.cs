@@ -11,6 +11,8 @@ public class Installer
 {
     public const string ServiceId = "aspnet-server";
     public const bool AllowOnlyRootToCreateApplications = Configuration.AllowOnlyRootToCreateApplications;
+    public const bool AllowOnlyAdminsToCreateApplications = Configuration.AllowOnlyAdminsToCreateApplications;
+    public const string AdminGroup = Configuration.AdminGroup;
     public const string WwwData = Configuration.WwwData;
     public static Shell Shell => Shell.Standard;
     public static ILogger Log => Configuration.Current.Logger;
@@ -179,6 +181,7 @@ public class Installer
         if (!File.Exists(Configuration.Current.ConfigPath))
         {
             await AddUnixGroup(WwwData);
+            await AddUnixGroup(AdminGroup);
             await AddUnixUser(WwwData, WwwData, GetRandomString(16));
 
             var configfile = Configuration.Current.ConfigPath;
@@ -195,15 +198,17 @@ public class Installer
                     Unix.SetFilePermissions(configfile,
                         UnixFileMode.UserRead | UnixFileMode.UserWrite);
                 }
-                else
+                else if (AllowOnlyAdminsToCreateApplications)
                 {
                     Unix.SetFilePermissions(configfile,
-                        UnixFileMode.UserRead | UnixFileMode.UserWrite);
+                        UnixFileMode.UserRead | UnixFileMode.UserWrite |
+                        UnixFileMode.GroupRead | UnixFileMode.GroupWrite);
                     Unix.SetFilePermissions(configpath,
                         UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
                         UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.GroupExecute);
-                }
-                Unix.SetOwnerAndGroup(configpath, "root", WwwData);
+                }  else throw new NotSupportedException("Either only root or only admin must be allowed to create applications.");
+
+                Unix.SetOwnerAndGroup(configpath, "root", AdminGroup);
             }
 
             var conf = Configuration.Current;

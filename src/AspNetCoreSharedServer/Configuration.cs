@@ -33,7 +33,9 @@ public enum Status
 }
 public class Configuration
 {
-    public const bool AllowOnlyRootToCreateApplications = true;
+    public const bool AllowOnlyAdminsToCreateApplications = true;
+    public const bool AllowOnlyRootToCreateApplications = !AllowOnlyAdminsToCreateApplications;
+    public const string AdminGroup = "aspnet-server";
     public const string WwwData = "www-data";
     public static readonly TimeSpan LockTimeout = TimeSpan.FromMinutes(2);
     public static readonly string LockName = $"EstrellasDeEsperanza{Path.DirectorySeparatorChar}aspnet-server";
@@ -915,12 +917,14 @@ public class Configuration
                     Unix.SetFilePermissions(dir,
                         UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
                 }
-                else
+                else if (AllowOnlyAdminsToCreateApplications)
                 {
                     Unix.SetFilePermissions(dir,
                         UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
                         UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.GroupExecute);
                 }
+                else throw new NotSupportedException("Either only root or only admin must be allowed to create applications.");
+                Unix.SetOwnerAndGroup(dir, "root", AdminGroup);
             }
         }
 
@@ -955,16 +959,30 @@ public class Configuration
             File.WriteAllText(Path.Combine(Path.GetDirectoryName(ConfigPath)!, file), extjson);
             try
             {
-                if (!string.IsNullOrEmpty(extapp.User ?? User)) Unix.SetOwnerAndGroup(file, extapp.User ?? User!, WwwData);
+                if (!string.IsNullOrEmpty(extapp.User ?? User)) Unix.SetOwnerAndGroup(file, extapp.User ?? User!, AdminGroup);
             }
             catch { }
             if (!OSInfo.IsWindows) Unix.SetFilePermissions(file, UnixFileMode.UserRead | UnixFileMode.UserWrite);
         }
-        // If runnig as root, set permissions to read/write for root only
-        if (!OSInfo.IsWindows && AllowOnlyRootToCreateApplications/* && Unix.getuid() == 0 */)
+        // If set permissions to read/write
+        if (!OSInfo.IsWindows)
         {
-            Unix.SetFilePermissions(Path.GetDirectoryName(ConfigPath)!, UnixFileMode.UserRead | UnixFileMode.UserWrite);
-            Unix.SetFilePermissions(ConfigPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            var configDir = Path.GetDirectoryName(ConfigPath);
+            if (AllowOnlyRootToCreateApplications) {
+                Unix.SetFilePermissions(configDir!, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+                Unix.SetFilePermissions(ConfigPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+                Unix.SetOwnerAndGroup(ConfigPath, "root", AdminGroup);
+                Unix.SetOwnerAndGroup(configDir!, "root", AdminGroup);
+            } else if (AllowOnlyAdminsToCreateApplications)
+            {
+                Unix.SetFilePermissions(configDir!, UnixFileMode.UserRead | UnixFileMode.UserWrite |
+                    UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.GroupExecute);
+                Unix.SetFilePermissions(ConfigPath, UnixFileMode.UserRead | UnixFileMode.UserWrite |
+                    UnixFileMode.GroupRead | UnixFileMode.GroupWrite);
+                Unix.SetOwnerAndGroup(ConfigPath, "root", AdminGroup);
+                Unix.SetOwnerAndGroup(configDir!, "root", AdminGroup);
+            }
+            else throw new NotSupportedException("Either only root or only admin must be allowed to create applications.");
         }
         foreach (var app in Applications) app.Dirty = false;
     }
