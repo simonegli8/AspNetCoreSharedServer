@@ -908,16 +908,19 @@ public class Configuration
         if (!Directory.Exists(dir))
         {
             Directory.CreateDirectory(dir);
-            if (AllowOnlyRootToCreateApplications)
+            if (!OSInfo.IsWindows)
             {
-                Unix.SetFilePermissions(dir,
-                    UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-            }
-            else
-            {
-                Unix.SetFilePermissions(dir,
-                    UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
-                    UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.GroupExecute);
+                if (AllowOnlyRootToCreateApplications)
+                {
+                    Unix.SetFilePermissions(dir,
+                        UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+                }
+                else
+                {
+                    Unix.SetFilePermissions(dir,
+                        UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
+                        UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.GroupExecute);
+                }
             }
         }
 
@@ -955,10 +958,10 @@ public class Configuration
                 if (!string.IsNullOrEmpty(extapp.User ?? User)) Unix.SetOwnerAndGroup(file, extapp.User ?? User!, WwwData);
             }
             catch { }
-            Unix.SetFilePermissions(file, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            if (!OSInfo.IsWindows) Unix.SetFilePermissions(file, UnixFileMode.UserRead | UnixFileMode.UserWrite);
         }
         // If runnig as root, set permissions to read/write for root only
-        if (!OSInfo.IsWindows /* && Unix.getuid() == 0 */)
+        if (!OSInfo.IsWindows && AllowOnlyRootToCreateApplications/* && Unix.getuid() == 0 */)
         {
             Unix.SetFilePermissions(Path.GetDirectoryName(ConfigPath)!, UnixFileMode.UserRead | UnixFileMode.UserWrite);
             Unix.SetFilePermissions(ConfigPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
