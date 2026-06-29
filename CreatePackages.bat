@@ -1,4 +1,4 @@
-SET PackageVersion=3.1.9
+SET PackageVersion=3.1.10
 SET Configuration=Debug
 
 del nupkg\*.nupkg
