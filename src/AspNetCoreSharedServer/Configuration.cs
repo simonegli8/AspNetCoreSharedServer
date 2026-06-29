@@ -996,7 +996,7 @@ public class Configuration
                     Unix.SetOwnerAndGroup(configDir!, "root", AdminGroup);
                 }
             }
-            else throw new NotSupportedException("Either only root or only admin must be allowed to create applications.");
+            else throw new NotSupportedException("Either only root or only admins must be allowed to create applications.");
         }
         foreach (var app in Applications) app.Dirty = false;
     }
