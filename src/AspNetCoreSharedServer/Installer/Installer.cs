@@ -204,7 +204,7 @@ public class Installer
                     Unix.SetFilePermissions(configpath,
                         UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
                         UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.GroupExecute);
-                }  else throw new NotSupportedException("Either only root or only admin must be allowed to create applications.");
+                }  else throw new NotSupportedException("Either only root or only admins must be allowed to create applications.");
 
                 Unix.SetOwnerAndGroup(configpath, "root", AdminGroup);
                 Unix.SetOwnerAndGroup(configfile, "root", AdminGroup);
