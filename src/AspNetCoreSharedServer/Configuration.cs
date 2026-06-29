@@ -959,7 +959,7 @@ public class Configuration
             File.WriteAllText(Path.Combine(Path.GetDirectoryName(ConfigPath)!, file), extjson);
             try
             {
-                if (!string.IsNullOrEmpty(extapp.User ?? User)) Unix.SetOwnerAndGroup(file, extapp.User ?? User!, AdminGroup);
+                if (!string.IsNullOrEmpty(extapp.User ?? User) && Unix.IsRoot) Unix.SetOwnerAndGroup(file, extapp.User ?? User!, AdminGroup);
             }
             catch { }
             if (!OSInfo.IsWindows) Unix.SetFilePermissions(file, UnixFileMode.UserRead | UnixFileMode.UserWrite);
@@ -968,19 +968,26 @@ public class Configuration
         if (!OSInfo.IsWindows)
         {
             var configDir = Path.GetDirectoryName(ConfigPath);
-            if (AllowOnlyRootToCreateApplications) {
-                Unix.SetFilePermissions(configDir!, UnixFileMode.UserRead | UnixFileMode.UserWrite);
-                Unix.SetFilePermissions(ConfigPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
-                Unix.SetOwnerAndGroup(ConfigPath, "root", AdminGroup);
-                Unix.SetOwnerAndGroup(configDir!, "root", AdminGroup);
-            } else if (AllowOnlyAdminsToCreateApplications)
+            if (AllowOnlyRootToCreateApplications)
             {
-                Unix.SetFilePermissions(configDir!, UnixFileMode.UserRead | UnixFileMode.UserWrite |
-                    UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.GroupExecute);
-                Unix.SetFilePermissions(ConfigPath, UnixFileMode.UserRead | UnixFileMode.UserWrite |
-                    UnixFileMode.GroupRead | UnixFileMode.GroupWrite);
-                Unix.SetOwnerAndGroup(ConfigPath, "root", AdminGroup);
-                Unix.SetOwnerAndGroup(configDir!, "root", AdminGroup);
+                if (Unix.IsRoot)
+                {
+                    Unix.SetFilePermissions(configDir!, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+                    Unix.SetFilePermissions(ConfigPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+                    Unix.SetOwnerAndGroup(ConfigPath, "root", AdminGroup);
+                    Unix.SetOwnerAndGroup(configDir!, "root", AdminGroup);
+                }
+            }
+            else if (AllowOnlyAdminsToCreateApplications)
+            {
+                if (Unix.IsRoot)
+                {
+                    Unix.SetFilePermissions(configDir!, UnixFileMode.UserRead | UnixFileMode.UserWrite |
+                        UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.GroupExecute);
+                    Unix.SetFilePermissions(ConfigPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+                    Unix.SetOwnerAndGroup(ConfigPath, "root", AdminGroup);
+                    Unix.SetOwnerAndGroup(configDir!, "root", AdminGroup);
+                }
             }
             else throw new NotSupportedException("Either only root or only admin must be allowed to create applications.");
         }

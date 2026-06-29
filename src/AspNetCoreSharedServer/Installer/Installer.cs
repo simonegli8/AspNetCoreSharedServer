@@ -200,15 +200,14 @@ public class Installer
                 }
                 else if (AllowOnlyAdminsToCreateApplications)
                 {
-                    Unix.SetFilePermissions(configfile,
-                        UnixFileMode.UserRead | UnixFileMode.UserWrite |
-                        UnixFileMode.GroupRead | UnixFileMode.GroupWrite);
+                    Unix.SetFilePermissions(configfile, UnixFileMode.UserRead | UnixFileMode.UserWrite);
                     Unix.SetFilePermissions(configpath,
                         UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
                         UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.GroupExecute);
                 }  else throw new NotSupportedException("Either only root or only admin must be allowed to create applications.");
 
                 Unix.SetOwnerAndGroup(configpath, "root", AdminGroup);
+                Unix.SetOwnerAndGroup(configfile, "root", AdminGroup);
             }
 
             var conf = Configuration.Current;
