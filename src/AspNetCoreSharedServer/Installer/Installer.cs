@@ -231,7 +231,16 @@ public class Installer
         }
         const string Description = "ASP.NET Core Shared Server support for shared hosting of ASP.NET Core applications";
         string Command;
-        if (!OSInfo.IsMac) Command = $"/root/.dotnet/tools/{ServiceId}";
+        if (!OSInfo.IsMac)
+        {
+            // Copy to /usr/bin, since /root may fail for systemd
+            Command = $"/root/.dotnet/tools/{ServiceId}";
+            var bincmd = $"/usr/bin/{ServiceId}";
+            File.Copy(Command, bincmd, true);
+            Unix.SetFilePermissions(bincmd, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
+                UnixFileMode.OtherRead | UnixFileMode.OtherExecute | UnixFileMode.GroupRead | UnixFileMode.GroupExecute);
+            Command = bincmd;
+        }
         else Command = $"/var/bin/{ServiceId}";
         string Directory = Path.GetDirectoryName(Command);
 
