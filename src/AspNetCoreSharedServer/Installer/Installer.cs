@@ -232,14 +232,7 @@ public class Installer
         }
         const string Description = "ASP.NET Core Shared Server support for shared hosting of ASP.NET Core applications";
         string Command;
-        if (!OSInfo.IsMac)
-        {
-            var version = Assembly.GetExecutingAssembly().GetName().Version;
-            var dllpath = $"/root/.dotnet/tools/.store/aspnetcoresharedserver/{version.ToString(3)}/aspnetcoresharedserver/{version.ToString(3)}/tools/net10.0/any/AspNetCoreSharedServer.dll";
-            // Copy to /usr/bin, since /root may fail for systemd
-            var dotnet = Shell.Standard.Find("dotnet");
-            Command = $"{dotnet} \"{dllpath}\"";
-        }
+        if (!OSInfo.IsMac) Command = $"/root/.dotnet/tools/{ServiceId}";
         else Command = $"/var/bin/{ServiceId}";
         string Directory = Path.GetDirectoryName(Command);
 
