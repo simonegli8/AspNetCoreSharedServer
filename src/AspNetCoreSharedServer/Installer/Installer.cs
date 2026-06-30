@@ -1,9 +1,10 @@
-﻿using System;
+﻿using AspNetCoreSharedServer.Util;
+using System;
 using System.Collections.Generic;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
-using AspNetCoreSharedServer.Util;
 
 namespace AspNetCoreSharedServer.Services;
 
@@ -233,13 +234,11 @@ public class Installer
         string Command;
         if (!OSInfo.IsMac)
         {
+            var version = Assembly.GetExecutingAssembly().GetName().Version;
+            var dllpath = $"/root/.dotnet/tools/.store/aspnetcoresharedserver/{version.ToString(3)}/aspnetcoresharedserver/{version.ToString(3)}/tools/net10.0/any/AspNetCoreSharedServer.dll";
             // Copy to /usr/bin, since /root may fail for systemd
-            Command = $"/root/.dotnet/tools/{ServiceId}";
-            var bincmd = $"/usr/bin/{ServiceId}";
-            File.Copy(Command, bincmd, true);
-            Unix.SetFilePermissions(bincmd, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
-                UnixFileMode.OtherRead | UnixFileMode.OtherExecute | UnixFileMode.GroupRead | UnixFileMode.GroupExecute);
-            Command = bincmd;
+            var dotnet = Shell.Standard.Find("dotnet");
+            Command = $"{dotnet} \"{dllpath}\"";
         }
         else Command = $"/var/bin/{ServiceId}";
         string Directory = Path.GetDirectoryName(Command);
