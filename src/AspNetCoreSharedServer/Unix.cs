@@ -24,7 +24,7 @@ public enum UnixFileMode
     StickyBit = 0x200,
     SetGroup = 0x400,
     SetUser = 0x800,
-    All = 0x8ff
+    All = 0x1ff
 }
 
 public class Unix
