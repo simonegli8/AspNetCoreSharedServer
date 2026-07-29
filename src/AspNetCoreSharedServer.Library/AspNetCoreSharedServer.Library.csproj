@@ -34,58 +34,58 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <Compile Include="..\AspNetCoreSharedServer\Configuration.cs">
+        <Compile Include="../AspNetCoreSharedServer/Configuration.cs">
             <Link>Configuration.cs</Link>
         </Compile>
-        <Compile Include="..\AspNetCoreSharedServer\OSInfo.cs">
+        <Compile Include="../AspNetCoreSharedServer/OSInfo.cs">
             <Link>OSInfo.cs</Link>
         </Compile>
-        <Compile Include="..\AspNetCoreSharedServer\Program.cs">
+        <Compile Include="../AspNetCoreSharedServer/Program.cs">
             <Link>Program.cs</Link>
         </Compile>
-        <Compile Include="..\AspNetCoreSharedServer\Proxy.cs">
+        <Compile Include="../AspNetCoreSharedServer/Proxy.cs">
             <Link>Proxy.cs</Link>
         </Compile>
-        <Compile Include="..\AspNetCoreSharedServer\Server.cs">
+        <Compile Include="../AspNetCoreSharedServer/Server.cs">
             <Link>Server.cs</Link>
         </Compile>
-        <Compile Include="..\AspNetCoreSharedServer\SignalSender.cs">
+        <Compile Include="../AspNetCoreSharedServer/SignalSender.cs">
             <Link>SignalSender.cs</Link>
         </Compile>
-        <Compile Include="..\AspNetCoreSharedServer\Worker.cs">
+        <Compile Include="../AspNetCoreSharedServer/Worker.cs">
             <Link>Worker.cs</Link>
         </Compile>
-		<Compile Include="..\AspNetCoreSharedServer\Unix.cs">
+		<Compile Include="../AspNetCoreSharedServer/Unix.cs">
 			<Link>Unix.cs</Link>
 		</Compile>
-        <Compile Include="..\AspNetCoreSharedServer\Installer\ServiceControllers\LaunchdServcieController.cs">
+        <Compile Include="../AspNetCoreSharedServer/Installer/ServiceControllers/LaunchdServcieController.cs">
             <Link>Installer\ServiceControllers\LaunchdServcieController.cs</Link>
         </Compile>
-        <Compile Include="..\AspNetCoreSharedServer\Installer\ServiceControllers\OpenRCServiceController.cs">
+        <Compile Include="../AspNetCoreSharedServer/Installer/ServiceControllers/OpenRCServiceController.cs">
             <Link>Installer\ServiceControllers\OpenRCServiceController.cs</Link>
         </Compile>
-        <Compile Include="..\AspNetCoreSharedServer\Installer\ServiceControllers\SystemdServiceController.cs">
+        <Compile Include="../AspNetCoreSharedServer/Installer/ServiceControllers/SystemdServiceController.cs">
             <Link>Installer\ServiceControllers\SystemdServiceController.cs</Link>
         </Compile>
-        <Compile Include="..\AspNetCoreSharedServer\Installer\Installer.cs">
+        <Compile Include="../AspNetCoreSharedServer/Installer/Installer.cs">
             <Link>Installer\Installer.cs</Link>
         </Compile>
-        <Compile Include="..\AspNetCoreSharedServer\Installer\ServiceController.cs">
+        <Compile Include="../AspNetCoreSharedServer/Installer/ServiceController.cs">
             <Link>Installer\ServiceController.cs</Link>
         </Compile>
-        <Compile Include="..\AspNetCoreSharedServer\Installer\Shell.cs">
+        <Compile Include="../AspNetCoreSharedServer/Installer/Shell.cs">
             <Link>Installer\Shell.cs</Link>
         </Compile>
-        <Compile Include="..\AspNetCoreSharedServer\Log\SyslogLogger.cs">
+        <Compile Include="../AspNetCoreSharedServer/Log/SyslogLogger.cs">
             <Link>Log\SyslogLogger.cs</Link>
         </Compile>
-        <Compile Include="..\AspNetCoreSharedServer\Log\SyslogLoggerProvider.cs">
+        <Compile Include="../AspNetCoreSharedServer/Log/SyslogLoggerProvider.cs">
             <Link>Log\SyslogLoggerProvider.cs</Link>
         </Compile>
     </ItemGroup>
     
     <ItemGroup>
-        <Content Include="..\AspNetCoreSharedServer\README.md" Pack="true" PackagePath="\">
+        <Content Include="../AspNetCoreSharedServer/README.md" Pack="true" PackagePath="\">
             <Link>README.md</Link>
         </Content>
     </ItemGroup>
