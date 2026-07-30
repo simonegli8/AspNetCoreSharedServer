@@ -5,6 +5,7 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace AspNetCoreSharedServer.Services;
 
@@ -60,6 +61,23 @@ public class Installer
         {
             await Shell.ExecAsync($"addgroup {group}");
         }
+        else if (OSInfo.IsMac)
+        {
+            await Shell.ExecAsync($"dscl . create /Groups/{group}");
+            await Shell.ExecAsync($"dscl . create /Groups/{group} RealName \"{group}\"");
+            await Shell.ExecAsync($"dscl . create /Groups/{group} Password \"*\"");
+            // Get free PrimaryGroupID
+            var output = await Shell.ExecAsync($"dscl . list /Groups PrimaryGroupID").Output();
+            var maxid = Regex.Matches(output, @"(?<=^\s*[^ \t]+\s+)[0-9]+", RegexOptions.Multiline)
+            .OfType<Match>()
+                .Select(m =>
+            {
+                if (int.TryParse(m.Value, out int v)) return v;
+                return -1;
+            })
+            .Max();
+            await Shell.ExecAsync($"dscl . create /Groups/{group} PrimaryGroupID {maxid + 100}");
+        }
         else
         {
             await Shell.ExecAsync($"groupadd {group}");
@@ -73,12 +91,23 @@ public class Installer
             {
                 await Shell.ExecAsync($"adduser -h /home/{user} -G {group} -D -s /bin/false {user}");
             }
+            else if (OSInfo.IsMac)
+            {
+                await Shell.ExecAsync($"sysadminctl -addUser {user} -fullName \"{user}\"");
+
+                var groups = group.Split(',');
+                foreach (var g in groups)
+                {
+                    await Shell.ExecAsync($"dscl . -append /Groups/{g.Trim()} GroupMembership {user}");
+                }
+            }
             else
             {
                 await Shell.ExecAsync($"useradd --home /home/{user} --gid {group} -m --shell /bin/false {user}");
             }
 
             var shell = Shell.ExecAsync($"passwd {user}");
+            if (OSInfo.IsMac) shell.Input.WriteLine();
             shell.Input.WriteLine(password);
             shell.Input.WriteLine(password);
 
