@@ -6,7 +6,7 @@ Configuration="Debug"
 rm -f nupkg/*.nupkg
 rm -f nupkg/*.snupkg
 
-dotnet pack src/AspNetCoreSharedServer.slnx \
+dotnet pack AspNetCoreSharedServer.slnx \
     -c "$Configuration" \
     -p:Version="$PackageVersion" \
     -p:FileVersion="${PackageVersion}.0" \
