@@ -33,6 +33,7 @@
 		<PublishRepositoryUrl>true</PublishRepositoryUrl>
         <PackageOutputPath>..\..\nupkg</PackageOutputPath>
         <WarningsAsErrors>CS4014</WarningsAsErrors>
+        <RestoreSources>$(RestoreSources);..\..\nupkg;https://api.nuget.org/v3/index.json</RestoreSources>
 	</PropertyGroup>
 
 	<ItemGroup>
