@@ -74,10 +74,10 @@ public class OSInfo
         {
             if (flavor != OSFlavor.Unknown) return flavor;
             version = Environment.OSVersion.Version;
-            if (IsWindows) return OSFlavor.Windows;
-            if (IsMac) return OSFlavor.Mac;
-            if (IsFreeBSD) return OSFlavor.FreeBSD;
-            if (IsNetBSD) return OSFlavor.NetBSD;
+            if (IsWindows) return flavor = OSFlavor.Windows;
+            if (IsMac) return flavor = OSFlavor.Mac;
+            if (IsFreeBSD) return flavor = OSFlavor.FreeBSD;
+            if (IsNetBSD) return flavor = OSFlavor.NetBSD;
             if (IsLinux)
             {
                 string name = null;
@@ -138,7 +138,7 @@ public class OSInfo
                     }
                 }
             }
-            return flavor == OSFlavor.Unknown ? OSFlavor.Other : flavor;
+            return flavor == OSFlavor.Unknown ? flavor = OSFlavor.Other : flavor;
         }
     }
     public static Version OSVersion
