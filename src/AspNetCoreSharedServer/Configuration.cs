@@ -38,7 +38,7 @@ public class Configuration
     public const string AdminGroup = "aspnet-server";
     public const string WwwData = "www-data";
     public static readonly TimeSpan LockTimeout = TimeSpan.FromMinutes(2);
-    public static readonly string LockName = $"EstrellasDeEsperanza{Path.DirectorySeparatorChar}aspnet-server";
+    public static readonly string LockName = $"EstrellasDeEsperanza-aspnet-server";
 
     public class SyslogConfiguration
     {
