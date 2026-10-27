@@ -1,5 +1,5 @@
-SET PackageVersion=3.2.3
-SET Configuration=Debug
+SET PackageVersion=3.2.4
+SET Configuration=Release
 
 del nupkg\*.nupkg
 del nupkg\*.snupkg

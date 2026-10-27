@@ -10,11 +10,11 @@
     },
     "WSL": {
       "commandName": "WSL2",
-      "commandLineArgs": "/mnt/c/GitHub/AspNetCoreSharedServer/src/AspNetCoreSharedServer/bin/Debug/net10.0/AspNetCoreSharedServer.dll",
+      "commandLineArgs": "/mnt/c/GitHub/AspNetCoreSharedServer/src/AspNetCoreSharedServer/bin/Debug/net10.0/AspNetCoreSharedServer.dll status all",
       "environmentVariables": {
         "DOTNET_ENVIRONMENT": "Development"
       },
-      "distributionName": "Ubuntu-26.04-Test-Clone"
+      "distributionName": "Ubuntu-26.04"
     },
     "Debian-Test": {
       "commandName": "WSL2",

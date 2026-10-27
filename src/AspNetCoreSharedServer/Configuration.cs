@@ -9,7 +9,6 @@ using EstrellasDeEsperanza.AsyncLock;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Converters;
 using AspNetCoreSharedServer.Util;
-using System.Runtime.CompilerServices;
 
 namespace AspNetCoreSharedServer;
 
@@ -205,6 +204,16 @@ public class Configuration
     public bool EnableHttp3 { get; set; } = true;
     [DefaultValue(null)]
     public string? User { get; set; } = null;
+    string? runningUser = null;
+    bool runningUserSet = false;
+    [JsonIgnore]
+    public string? RunningUser {
+        get => runningUserSet ? runningUser : User;
+        set {
+            runningUser = value;
+            runningUserSet = true;
+        }
+    }
     [DefaultValue(null)]
     public string? Group { get; set; } = null;
     [DefaultValue(0.95)]
@@ -225,6 +234,8 @@ public class Configuration
     public TimeSpan FailureInterval { get; set; } = TimeSpan.FromMinutes(5);
     [DefaultValue(5)]
     public int FailureLimit { get; set; } = 5;
+    [DefaultValue(null)]
+    public string? Error { get; set; } = null;
     int loadEntered = 0;
 
     static AsyncMutexLock? @lock = null;
@@ -258,6 +269,35 @@ public class Configuration
             // Read the configuration file if it exists.
             try
             {
+                if (!OSInfo.IsWindows)
+                {
+                    var fileMode = Unix.GetFilePermissions(ConfigPath);
+                    var owner = Unix.GetOwnerAndGroup(ConfigPath).Owner;
+                    if (owner != User && owner != "root" ||
+                        fileMode.HasFlag(UnixFileMode.GroupWrite) ||
+                        fileMode.HasFlag(UnixFileMode.OtherWrite))
+                    {
+                        var txterror = File.ReadAllText(ConfigPath);
+                        try
+                        {
+                            var configerror = JsonConvert.DeserializeObject<Configuration>(txterror,
+                                new Newtonsoft.Json.Converters.VersionConverter(), new StringEnumConverter());
+                            configerror!.Error = $"For security reasons, the configuration.json must be owned by root {(User != null ? $"or {User} " : "")}and must not have group & other write permission set.";
+                            configerror.Offline = true;
+                            configerror.RunningUser = User;
+                            configerror.Save(true, false);
+                            return null;
+                        }
+                        catch (JsonException ex)
+                        {
+#if Server
+                            Logger?.LogError(ex, $"Error parsing {Path.GetFileName(ConfigPath)}; {ex.Message}");
+#endif
+                            return null;
+                        }
+                    }
+                }
+
                 var txt = File.ReadAllText(ConfigPath);
                 try
                 {
@@ -293,7 +333,7 @@ public class Configuration
                         {
                             var json = File.ReadAllText(file);
                             if (string.IsNullOrEmpty(json)) return null;
-                            Application? app;
+                            Application? app = null;
                             try
                             {
                                 app = JsonConvert.DeserializeObject<Application>(json,
@@ -319,30 +359,33 @@ public class Configuration
                             if (app.Environment == null) app.Environment = new Dictionary<string, string>();
                             app.IsSeparateFile = true;
 #if Server
-                            var fileMode = Unix.GetFilePermissions(file);
-                            var owner = Unix.GetOwnerAndGroup(file).Owner;
-                            if ((owner != (app.User ?? config.User) ||
-                                fileMode.HasFlag(UnixFileMode.GroupWrite) ||
-                                fileMode.HasFlag(UnixFileMode.OtherWrite)))
+                            if (!OSInfo.IsWindows)
                             {
-                                // Retry loading app after one second, in case owner and mode of a freshly created file
-                                // has not yet been set. (The file might have been created by Api's Save method).
-                                if (!app.Offline && !app.IsReloading &&
-                                    (DateTime.Now - File.GetCreationTime(file) < TimeSpan.FromSeconds(5)))
+                                var fileMode = Unix.GetFilePermissions(file);
+                                var owner = Unix.GetOwnerAndGroup(file).Owner;
+                                if ((owner != (app.User ?? config.User) && owner != "root" ||
+                                    fileMode.HasFlag(UnixFileMode.GroupWrite) ||
+                                    fileMode.HasFlag(UnixFileMode.OtherWrite)))
                                 {
-                                    app.IsReloading = true;
-                                    Task.Run(async () =>
+                                    // Retry loading app after one second, in case owner and mode of a freshly created file
+                                    // has not yet been set. (The file might have been created by Api's Save method).
+                                    /*if (!app.Offline && !app.IsReloading &&
+                                        (DateTime.Now - File.GetCreationTime(file) < TimeSpan.FromSeconds(5)))
                                     {
-                                        await Task.Delay(1000);
-                                        app.Offline = false;
-                                        await LoadAsync();
-                                        app.IsReloading = false;
-                                    });
+                                        app.IsReloading = true;
+                                        Task.Run(async () =>
+                                        {
+                                            await Task.Delay(1000);
+                                            app.Offline = false;
+                                            await LoadAsync();
+                                            app.IsReloading = false;
+                                        });
+                                    }*/
+                                    app.Offline = true;
+                                    app.Status = Status.Error;
+                                    app.Error = $"The app json file {Path.GetFileName(file)} has a different owner than the app's User, or is writable by group or other. It must be writable only by it's owner, and must be owned by the same user specified in it's User json property.";
+                                    hasError = true;
                                 }
-                                app.Offline = true;
-                                app.Status = Status.Error;
-                                app.Error = $"The app json file {Path.GetFileName(file)} has a different owner than the app's User, or is writable by group or other. It must be writable only by it's owner, and must be owned by the same user specified in it's User json property.";
-                                hasError = true;
                             }
 #endif
                             return app;
@@ -396,6 +439,34 @@ public class Configuration
             // Read the configuration file if it exists.
             try
             {
+                if (!OSInfo.IsWindows)
+                {
+                    var fileMode = Unix.GetFilePermissions(ConfigPath);
+                    var owner = Unix.GetOwnerAndGroup(ConfigPath).Owner;
+                    if (owner != User && owner != "root" ||
+                        fileMode.HasFlag(UnixFileMode.GroupWrite) ||
+                        fileMode.HasFlag(UnixFileMode.OtherWrite))
+                    {
+                        var txterror = File.ReadAllText(ConfigPath);
+                        try
+                        {
+                            var configerror = JsonConvert.DeserializeObject<Configuration>(txterror,
+                                new Newtonsoft.Json.Converters.VersionConverter(), new StringEnumConverter());
+                            configerror!.Error = $"For security reasons, the configuration.json must be owned by root {(User != null ? $"or {User} " : "")}and must not have group & other write permission set.";
+                            configerror.Offline = true;
+                            configerror.RunningUser = User;
+                            configerror.Save(true, false);
+                            return null;
+                        }
+                        catch (JsonException ex)
+                        {
+#if Server
+                            Logger?.LogError(ex, $"Error parsing {Path.GetFileName(ConfigPath)}; {ex.Message}");
+#endif
+                            return null;
+                        }
+                    }
+                }
                 var txt = File.ReadAllText(ConfigPath);
                 try
                 {
@@ -426,13 +497,13 @@ public class Configuration
                 if (loadApps)
                 {
                     bool hasError = false;
-                    var separateConfigs = Directory.EnumerateFiles(Path.GetDirectoryName(ConfigPath), "*.json")
+                    var separateConfigs = Directory.EnumerateFiles(Path.GetDirectoryName(ConfigPath)!, "*.json")
                         .Where(file => file != ConfigPath && file != ConfigPathOld)
                         .Select(file =>
                         {
                             var json = File.ReadAllText(file);
                             if (string.IsNullOrEmpty(json)) return null;
-                            Application? app;
+                            Application? app = null;
                             try
                             {
                                 app = JsonConvert.DeserializeObject<Application>(json,
@@ -459,30 +530,34 @@ public class Configuration
                             if (app.Environment == null) app.Environment = new Dictionary<string, string>();
                             app.IsSeparateFile = true;
 #if Server
-                            var fileMode = Unix.GetFilePermissions(file);
-                            var owner = Unix.GetOwnerAndGroup(file).Owner;
-                            if ((owner != (app.User ?? config.User) ||
-                                fileMode.HasFlag(UnixFileMode.GroupWrite) ||
-                                fileMode.HasFlag(UnixFileMode.OtherWrite)))
+                            if (!OSInfo.IsWindows)
                             {
-                                // Retry loading app after one second, in case owner and mode of a freshly created file
-                                // has not yet been set. (The file might have been created by Api's Save method).
-                                if (!app.Offline && !app.IsReloading &&
-                                    (DateTime.Now - File.GetCreationTime(file) < TimeSpan.FromSeconds(5)))
+                                var fileMode = Unix.GetFilePermissions(file);
+                                var owner = Unix.GetOwnerAndGroup(file).Owner;
+                                if ((owner != (app.User ?? config.User) &&
+                                    owner != "root" ||
+                                    fileMode.HasFlag(UnixFileMode.GroupWrite) ||
+                                    fileMode.HasFlag(UnixFileMode.OtherWrite)))
                                 {
-                                    app.IsReloading = true;
-                                    Task.Run(async () =>
+                                    // Retry loading app after one second, in case owner and mode of a freshly created file
+                                    // has not yet been set. (The file might have been created by Api's Save method).
+                                    /*if (!app.Offline && !app.IsReloading &&
+                                        (DateTime.Now - File.GetCreationTime(file) < TimeSpan.FromSeconds(5)))
                                     {
-                                        await Task.Delay(1000);
-                                        app.Offline = false;
-                                        Load();
-                                        app.IsReloading = false;
-                                    });
+                                        app.IsReloading = true;
+                                        Task.Run(async () =>
+                                        {
+                                            await Task.Delay(1000);
+                                            app.Offline = false;
+                                            Load();
+                                            app.IsReloading = false;
+                                        });
+                                    }*/
+                                    app.Offline = true;
+                                    app.Status = Status.Error;
+                                    app.Error = $"The app json file {Path.GetFileName(file)} has a different owner than the app's User, or is writable by group or other. It must be writable only by it's owner, and must be owned by the same user specified in it's User json property.";
+                                    hasError = true;
                                 }
-                                app.Offline = true;
-                                app.Status = Status.Error;
-                                app.Error = $"The app json file {Path.GetFileName(file)} has a different owner than the app's User, or is writable by group or other. It must be writable only by it's owner, and must be owned by the same user specified in it's User json property.";
-                                hasError = true;
                             }
 #endif
                             return app;
@@ -773,7 +848,7 @@ public class Configuration
                     }
                     else
                     {
-                        if (owner.Owner != "root")
+                        if (owner.Owner != "root" && owner.Owner != User)
                         {
                             foreach (var app in newApps)
                             {
@@ -924,7 +999,7 @@ public class Configuration
                         UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.GroupExecute);
                 }
                 else throw new NotSupportedException("Either only root or only admin must be allowed to create applications.");
-                Unix.SetOwnerAndGroup(dir, "root", AdminGroup);
+                if (Unix.IsRoot) Unix.SetOwnerAndGroup(dir, "root", AdminGroup);
             }
         }
 
@@ -937,6 +1012,32 @@ public class Configuration
             if (app.Environment == null || app.Environment.Count == 0) app.Environment = null;
         }
         if (oapps.Count == 0) Applications = null;
+        if (!File.Exists(ConfigPath))
+        {
+            File.WriteAllText(ConfigPath, "");
+            if (!OSInfo.IsWindows)
+            {
+                try
+                {
+                    Unix.SetOwnerAndGroup(ConfigPath, RunningUser ?? "root", null);
+                }
+                catch { }
+                Unix.SetFilePermissions(ConfigPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            }
+            Error = null;
+        }
+        else if (!OSInfo.IsWindows)
+        {
+            var fileMode = Unix.GetFilePermissions(ConfigPath);
+            var owner = Unix.GetOwnerAndGroup(ConfigPath).Owner;
+            if ((owner != RunningUser && owner != "root") ||
+                fileMode.HasFlag(UnixFileMode.GroupWrite) ||
+                fileMode.HasFlag(UnixFileMode.OtherWrite))
+            {
+                Error = $"For security reasons, the configuration.json must be owned by {((RunningUser != "root" && RunningUser != null) ? $"root or {RunningUser}" : "root")} and must not have group & other write permission set.";
+            }
+            else Error = null;
+        }
         var json = JsonConvert.SerializeObject(this, Formatting.Indented,
             new JsonSerializerSettings { DefaultValueHandling = DefaultValueHandling.Ignore });
         if (Applications == null) Applications = new Applications();
@@ -950,16 +1051,36 @@ public class Configuration
         File.WriteAllText(ConfigPath, json);
         foreach (var extapp in extapps)
         {
+            var file = Path.Combine(Path.GetDirectoryName(ConfigPath)!, $"{extapp.Name}.json");
+            bool fileIsInsecure = false;
+            if (!File.Exists(file)) File.WriteAllText(file, ""); // Write empty file, in order to set permissions first, before writing content
+            else
+            {
+                if (!OSInfo.IsWindows)
+                {
+                    var fileMode = Unix.GetFilePermissions(file);
+                    var owner = Unix.GetOwnerAndGroup(file).Owner;
+                    if ((owner != (extapp.User ?? RunningUser) && owner != "root" ||
+                        fileMode.HasFlag(UnixFileMode.GroupWrite) ||
+                        fileMode.HasFlag(UnixFileMode.OtherWrite)))
+                    {
+                        // File has insecure permissions or owner
+                        fileIsInsecure = true;
+                        var user = extapp.User ?? RunningUser ?? "root";
+                        extapp.Error = $"For security reasons, the {extapp.Name}.json must be owned by {(user != "root" ? $"root or {user}" : "root")} and must not have group & other write permission set.";
+                        extapp.Offline = true;
+                        extapp.Status = Status.Error;
+                    }
+                }
+            }
             Applications.Add(extapp); // re-add app to Applications
             if (extapp.Environment == null || extapp.Environment.Count == 0) extapp.Environment = null;
             var extjson = JsonConvert.SerializeObject(extapp, Formatting.Indented,
                 new JsonSerializerSettings { DefaultValueHandling = DefaultValueHandling.Ignore });
             if (extapp.Environment == null) extapp.Environment = new Dictionary<string, string>();
-            var file = Path.Combine(Path.GetDirectoryName(ConfigPath)!, $"{extapp.Name}.json");
-            File.WriteAllText(Path.Combine(Path.GetDirectoryName(ConfigPath)!, file), extjson);
             try
             {
-                if (!string.IsNullOrEmpty(extapp.User ?? User) && Unix.IsRoot) Unix.SetOwnerAndGroup(file, extapp.User ?? User!, AdminGroup);
+                if (!fileIsInsecure && Unix.IsRoot) Unix.SetOwnerAndGroup(file, extapp.User ?? RunningUser ?? "root", AdminGroup);
             }
             catch { }
             if (!OSInfo.IsWindows)
@@ -970,6 +1091,7 @@ public class Configuration
                 }
                 catch { }
             }
+            File.WriteAllText(file, extjson); // Now after setting permissions, write file.
         }
         // set permissions
         if (!OSInfo.IsWindows)
@@ -979,21 +1101,27 @@ public class Configuration
             {
                 if (Unix.IsRoot)
                 {
-                    Unix.SetFilePermissions(configDir!, UnixFileMode.UserRead | UnixFileMode.UserWrite);
-                    Unix.SetFilePermissions(ConfigPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
-                    Unix.SetOwnerAndGroup(ConfigPath, "root", AdminGroup);
+                    Unix.SetFilePermissions(configDir!, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
                     Unix.SetOwnerAndGroup(configDir!, "root", AdminGroup);
+                    if (Error == null)
+                    {
+                        Unix.SetFilePermissions(ConfigPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+                        Unix.SetOwnerAndGroup(ConfigPath, "root", AdminGroup);
+                    }
                 }
             }
             else if (AllowOnlyAdminsToCreateApplications)
             {
                 if (Unix.IsRoot)
                 {
-                    Unix.SetFilePermissions(configDir!, UnixFileMode.UserRead | UnixFileMode.UserWrite |
+                    Unix.SetFilePermissions(configDir!, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
                         UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.GroupExecute);
-                    Unix.SetFilePermissions(ConfigPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
-                    Unix.SetOwnerAndGroup(ConfigPath, "root", AdminGroup);
                     Unix.SetOwnerAndGroup(configDir!, "root", AdminGroup);
+                    if (Error == null)
+                    {
+                        Unix.SetFilePermissions(ConfigPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+                        Unix.SetOwnerAndGroup(ConfigPath, "root", AdminGroup);
+                    }
                 }
             }
             else throw new NotSupportedException("Either only root or only admins must be allowed to create applications.");
@@ -1434,7 +1562,7 @@ public class Application
     public Dictionary<string, string>? Environment { get; set; } = new Dictionary<string, string>();
     public string Assembly { get; set; } = string.Empty;
     [DefaultValue(null)]
-    public string? WorkingDirectory {  get; set; } = null;
+    public string? WorkingDirectory { get; set; } = null;
     [DefaultValue(null)]
     public string? Path { get; set; } = null;
     [DefaultValue("")]
@@ -1456,11 +1584,11 @@ public class Application
     public string? Group { get; set; } = null;
     [DefaultValue(false)]
     public bool Offline { get; set; } = false;
-    [DefaultValue(Status.Stopped)]
+    [DefaultValue(Status.Stopped), JsonConverter(typeof(StringEnumConverter))]
     public Status Status { get; set; } = Status.Stopped;
     [DefaultValue(null)]
     public string? Error { get; set; } = null;
-    [DefaultValue(Command.None)]
+    [DefaultValue(Command.None), JsonConverter(typeof(StringEnumConverter))]
     public Command Command { get; set; } = Command.None;
 #if Server
     [JsonIgnore]

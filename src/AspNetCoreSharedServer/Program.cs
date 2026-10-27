@@ -92,6 +92,11 @@ public class Program
                         try
                         {
                             var conf = await AspServer.Configuration.LoadConfigAsync();
+                            if (conf == null)
+                            {
+                                Console.WriteLine("Error loading configuration.");
+                                return;
+                            }
                             var app = conf.Applications?[apppool];
                             if (app == null)
                             {
@@ -139,6 +144,11 @@ public class Program
                         try
                         {
                             var conf = await AspServer.Configuration.LoadConfigAsync();
+                            if (conf == null)
+                            {
+                                Console.WriteLine("Error loading configuration.");
+                                return;
+                            }
                             var app = conf.Applications?[apppool];
                             if (app == null)
                             {
@@ -207,6 +217,11 @@ public class Program
                             try
                             {
                                 var conf = await AspServer.Configuration.LoadConfigAsync();
+                                if (conf == null)
+                                {
+                                    Console.WriteLine("Error loading configuration.");
+                                    return;
+                                }
                                 var app = conf.Applications?[apppool];
                                 if (app == null)
                                 {
@@ -215,7 +230,7 @@ public class Program
                                 }
                                 else
                                 {
-                                    app.Offline = false;
+                                    app.Offline = true;
                                     await conf.SaveAsync(false, false);
                                 }
                             }
@@ -230,6 +245,11 @@ public class Program
                             try
                             {
                                 var conf = AspServer.Configuration.LoadConfig();
+                                if (conf == null)
+                                {
+                                    Console.WriteLine("Error loading configuration.");
+                                    return;
+                                }
                                 var app = conf.Applications?[apppool];
                                 if (app == null)
                                 {
@@ -265,15 +285,36 @@ public class Program
                         try
                         {
                             var conf = AspServer.Configuration.LoadConfig();
-                            var app = conf.Applications?[apppool];
-                            if (app == null)
+                            if (conf == null)
                             {
-                                Console.WriteLine($"Application pool {apppool} not found.");
+                                Console.WriteLine("Error loading configuration.");
+                                return;
                             }
-                            else
+                            if (apppool != "all")
                             {
-                                Console.WriteLine($"Application pool {apppool} is {app.Status}.");
-                                if (!string.IsNullOrEmpty(app.Error)) Console.WriteLine($"Error: {app.Error}");
+                                var app = conf.Applications?[apppool];
+                                if (app == null)
+                                {
+                                    Console.WriteLine($"Application pool {apppool} not found.");
+                                }
+                                else
+                                {
+                                    Console.WriteLine($"Application pool {apppool} is {(app.Offline ? "offline" : $"online")} and its status is '{app.Status}'.");
+                                    if (!string.IsNullOrEmpty(app.Error)) Console.WriteLine($"Error: {app.Error}");
+                                }
+                            } else
+                            {
+                                if (conf.Applications != null) 
+                                {
+                                    foreach (var app in conf.Applications)
+                                    {
+                                        Console.WriteLine($"Application pool {app.Name} is {(app.Offline ? "offline" : $"online")} and its status is '{app.Status}'.");
+                                        if (!string.IsNullOrEmpty(app.Error)) Console.WriteLine($"Error: {app.Error}");
+                                    }
+                                } else
+                                {
+                                    Console.WriteLine("No applications defined.");
+                                }
                             }
                         }
                         catch (Exception ex)
@@ -314,7 +355,8 @@ possible values for argument:
 - restart: Restarts the system service, or the application pool if argument2 is specified.
 - enable: Enables the system service.
 - disable: Disables the system service.
-- status: Shows the status of the service, or the application pool if argument2 is specified.:");
+- status: Shows the status of the service, or the application pool if argument2 is specified,
+  or of all application pools if 'all' is specified as argument2.");
                 return;
             }
         }

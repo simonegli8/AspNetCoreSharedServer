@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
-PackageVersion="3.2.2"
-Configuration="Debug"
+PackageVersion="3.2.4"
+Configuration="Release"
 
 rm -f nupkg/*.nupkg
 rm -f nupkg/*.snupkg

@@ -118,9 +118,16 @@ public class Unix
 
     public static void SetOwnerAndGroup(
         string path,
-        string username,
-        string groupName)
+        string? username,
+        string? groupName)
     {
+        if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(groupName))
+        {
+            var current = GetOwnerAndGroup(path);
+            if (string.IsNullOrEmpty(username)) username = current.Owner;
+            if (string.IsNullOrEmpty(groupName)) groupName = current.Group;
+        }
+
         IntPtr pwdPtr = getpwnam(username);
 
         if (pwdPtr == IntPtr.Zero)

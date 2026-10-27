@@ -1,9 +1,9 @@
 <Solution>
   <Folder Name="/Solution Items/">
     <File Path=".gitignore" />
-    <File Path="CreatePackages.bat" />
-    <File Path="CreatePackages.sh" />
-    <File Path="PushToNuget.bat" />
+    <File Path="pack.bat" />
+    <File Path="pack.sh" />
+    <File Path="push-to-nuget.bat" />
     <File Path="README.md" />
   </Folder>
   <Project Path="src/AspNetCoreSharedServer.Api/AspNetCoreSharedServer.Api.csproj" />
