@@ -60,6 +60,19 @@ jobs:
           --filter "FullyQualifiedName~SudoLaunchTests|FullyQualifiedName~UnixStatTests|FullyQualifiedName~UnixTests"
           --logger "trx;LogFileName=test-results-root.trx" --logger "console;verbosity=normal"
 
+      # A skipped test counts as passed for dotnet test, so prove that the root-only tests really ran and passed on this machine.
+      - name: Check that the root-only tests ran
+        if: runner.os != 'Windows'
+        shell: pwsh
+        run: |
+          $xml = [xml](Get-Content (Get-ChildItem -Recurse -Filter "test-results-root.trx" | Select-Object -First 1).FullName -Raw)
+          $ns = New-Object System.Xml.XmlNamespaceManager($xml.NameTable)
+          $ns.AddNamespace("t", "http://microsoft.com/schemas/VisualStudio/TeamTest/2010")
+          $results = $xml.SelectNodes("//t:UnitTestResult[contains(@testName, 'SudoLaunchTests')]", $ns)
+          $passed = @($results | Where-Object { $_.outcome -eq "Passed" }).Count
+          Write-Host "::notice title=Root-only tests::SudoLaunchTests passed: $passed of $($results.Count) on ${{ matrix.os }} (uid $(id -u) is the test runner, tests ran under sudo)"
+          if ($results.Count -eq 0 -or $passed -ne $results.Count) { Write-Host "::error::The privilege drop tests did not all pass (skipped tests do not count)"; exit 1 }
+
       # The log of a run needs a login to read; annotations do not, and they show on the run summary page.
       - name: Show the failed tests
         if: failure()
