@@ -27,7 +27,7 @@ public class AltSvcTests
     [Fact]
     public void Uses_the_documented_variable_names()
     {
-        Assert.Equal("ALT_SVC_HEADER", Server.AltSvcVariable);
+        Assert.Equal("HTTP3_ALT_SVC_HEADER", Server.AltSvcVariable);
         Assert.Equal("HTTP3_ENABLED", Server.Http3EnabledVariable);
     }
 

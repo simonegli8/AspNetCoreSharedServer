@@ -22,6 +22,8 @@ public class Program
 			.FirstOrDefault(uri => uri.Scheme == "https")
 			?.Port;
 	
+		// Reads the PROXY header of AspNetCoreSharedServer when it sends one (PROXY_PROTOCOL); before the endpoints are created.
+		builder.WebHost.UseAspNetCoreSharedServer();
 		builder.WebHost.UseKestrel(options =>
 		{
 			if (httpPort.HasValue) options.ListenAnyIP(httpPort.Value); // Listen on port 5000
@@ -35,7 +37,7 @@ public class Program
 
 		// Kestrel only knows its own internal port, so on its own it would advertise HTTP/3 on a port that clients cannot reach.
 		// This sends the Alt-Svc header that AspNetCoreSharedServer provides (nothing when it does not forward HTTP/3).
-		app.UseProxyHttp3();
+		app.UseAspNetCoreSharedServer();
 
 		// Configure the HTTP request pipeline.
 		if (!app.Environment.IsDevelopment())

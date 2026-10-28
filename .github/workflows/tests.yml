@@ -1,0 +1,69 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A new push to a branch or pull request replaces the run that is still going.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  test:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      # One failing system must not hide the results of the others.
+      fail-fast: false
+      matrix:
+        include:
+          # Both Mac architectures: they have different stat records (the owner of a file is read from it) and different sudo setups.
+          - { name: "macOS arm64 (Apple Silicon)", os: macos-latest }
+          - { name: "macOS x64 (Intel)", os: macos-15-intel }
+          # Linux arm64 runs the arm64 stat layout for real; x64 and Windows are the baseline.
+          - { name: "Linux x64", os: ubuntu-latest }
+          - { name: "Linux arm64", os: ubuntu-24.04-arm }
+          - { name: "Windows x64", os: windows-latest }
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      # Builds everything, including the Api (netstandard2.0), the multi-targeted Middleware and the test app.
+      - name: Build
+        run: dotnet build AspNetCoreSharedServer.slnx --configuration Release
+
+      - name: Test
+        run: >
+          dotnet test src/AspNetCoreSharedServer.Tests --configuration Release --no-build
+          --logger "trx;LogFileName=test-results.trx" --logger "console;verbosity=normal"
+
+      # Some tests only run as root, because only root can start a process as another user. Most important is SudoLaunchTests: it proves
+      # that an app cannot get root back, which on macOS is checked nowhere else. UnixStatTests also chown a file to another user then.
+      - name: Test as root (privilege drop, file owners)
+        if: runner.os != 'Windows'
+        run: >
+          sudo env "PATH=$PATH" dotnet test src/AspNetCoreSharedServer.Tests --configuration Release --no-build
+          --filter "FullyQualifiedName~SudoLaunchTests|FullyQualifiedName~UnixStatTests|FullyQualifiedName~UnixTests"
+          --logger "trx;LogFileName=test-results-root.trx" --logger "console;verbosity=normal"
+
+      - name: Keep the test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.os }}
+          path: "**/TestResults/*.trx"
+          if-no-files-found: ignore

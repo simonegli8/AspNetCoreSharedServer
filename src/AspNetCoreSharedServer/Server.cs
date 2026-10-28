@@ -142,14 +142,10 @@ public class Server
             ?.Replace("${loopbackV4}", LoopbackTextV4)
             ?.Replace("${loopbackV6}", LoopbackTextV6);
         var altSvc = CreateAltSvcHeader(Proxy.Http3Active, Proxy.HasHttps, Proxy.PublicHttpsPort);
+        var proxyProtocol = CreateProxyProtocolVersion(Application.EnableProxyHeader, Application.EnableProxyV2Header);
 
         // The environment of the app: its own configuration, then the variables the server defines, which an app cannot override.
-        var variables = new Dictionary<string, string>();
-        foreach (var variable in Application.Environment ?? new Dictionary<string, string>()) variables[variable.Key] = variable.Value ?? "";
-        variables["ORIGINAL_URLS"] = Application.Urls ?? "";
-        variables["ASPNETCORE_URLS"] = urls.ToString();
-        variables[AltSvcVariable] = altSvc;
-        variables[Http3EnabledVariable] = altSvc.Length > 0 ? "true" : "false";
+        var variables = CreateEnvironment(Application.Environment, Application.Urls, urls.ToString(), altSvc, proxyProtocol);
 
         // What to run: dotnet <assembly> <arguments>, or an AOT executable.
         string program, programArguments;
@@ -223,10 +219,46 @@ public class Server
     }
 
     /// <summary>Environment variable holding the ready-made Alt-Svc header value for the app to send. Empty if HTTP/3 is not forwarded.</summary>
-    public const string AltSvcVariable = "ALT_SVC_HEADER";
+    public const string AltSvcVariable = "HTTP3_ALT_SVC_HEADER";
     /// <summary>Environment variable that is "true" when HTTP/3 is forwarded to the app, otherwise "false".</summary>
     public const string Http3EnabledVariable = "HTTP3_ENABLED";
     const int AltSvcMaxAgeSeconds = 86400;
+
+    /// <summary>
+    /// Environment variable that tells the app that every TCP connection to it starts with a PROXY protocol header, and of which
+    /// version: "v1" or "v2". It is not set when the server sends no such header.
+    /// </summary>
+    public const string ProxyProtocolVariable = "PROXY_PROTOCOL";
+
+    /// <summary>
+    /// "v2" or "v1" if the server sends a PROXY protocol header at the start of every TCP connection to the app, otherwise an empty
+    /// string. When both are enabled the server sends v2. This is the one place that decides it, for the header that is sent and for
+    /// the environment variable that announces it, so that the two cannot disagree.
+    /// </summary>
+    public static string CreateProxyProtocolVersion(bool? enableProxyHeader, bool? enableProxyV2Header) =>
+        enableProxyV2Header == true ? "v2" : enableProxyHeader == true ? "v1" : "";
+
+    /// <summary>
+    /// The environment of an app: the variables of its own configuration, then the ones the server defines, which an app cannot override.
+    /// <see cref="ProxyProtocolVariable"/> is only there when the server sends a PROXY header (<paramref name="proxyProtocol"/> is not
+    /// empty); a value from the configuration of the app is removed, because it would claim something that is not true.
+    /// </summary>
+    internal static Dictionary<string, string> CreateEnvironment(IReadOnlyDictionary<string, string>? appEnvironment, string? originalUrls,
+        string urls, string altSvc, string proxyProtocol)
+    {
+        var variables = new Dictionary<string, string>();
+        if (appEnvironment != null)
+        {
+            foreach (var variable in appEnvironment) variables[variable.Key] = variable.Value ?? "";
+        }
+        variables["ORIGINAL_URLS"] = originalUrls ?? "";
+        variables["ASPNETCORE_URLS"] = urls;
+        variables[AltSvcVariable] = altSvc;
+        variables[Http3EnabledVariable] = altSvc.Length > 0 ? "true" : "false";
+        variables.Remove(ProxyProtocolVariable);
+        if (proxyProtocol.Length > 0) variables[ProxyProtocolVariable] = proxyProtocol;
+        return variables;
+    }
 
     /// <summary>
     /// The Alt-Svc header value that advertises HTTP/3 on the proxy's public HTTPS port, or an empty string when HTTP/3 is not forwarded.
@@ -471,6 +503,7 @@ public class Server
                 var idleTimeout = muchmem ?
                     Proxy.IdleTimeout :
                     Configuration.Current.IdleTimeoutOnLowMemory ?? Configuration.DefaultIdleTimeoutOnLowMemory;
+                if (Proxy.IdleTimeout != TimeSpan.Zero && Proxy.IdleTimeout < idleTimeout) idleTimeout = Proxy.IdleTimeout;
 
                 if ((Proxy.IdleTimeout != null && Proxy.IdleTimeout != TimeSpan.Zero ||
                     (!muchmem && idleTimeout != TimeSpan.Zero)) &&
@@ -627,9 +660,10 @@ public class Server
         using (var destStream = destination.GetStream())
         {
             // Send proxy header
-            if (Application.EnableProxyHeader == true || Application.EnableProxyV2Header == true)
+            var proxyProtocol = CreateProxyProtocolVersion(Application.EnableProxyHeader, Application.EnableProxyV2Header);
+            if (proxyProtocol.Length > 0)
             {
-                var v2 = Application.EnableProxyV2Header == true;
+                var v2 = proxyProtocol == "v2";
                 var proxyHeader = CreateProxyHeader(source, v2);
                 // Inject the PROXY header
                 await destStream.WriteAsync(proxyHeader, 0, proxyHeader.Length, cancel.Token);

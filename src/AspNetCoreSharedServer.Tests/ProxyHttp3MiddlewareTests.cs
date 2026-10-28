@@ -6,7 +6,7 @@ using Xunit;
 namespace AspNetCoreSharedServer.Tests;
 
 /// <summary>
-/// UseProxyHttp3 from AspNetCoreSharedServer.Middleware, run through a real pipeline built with <see cref="ApplicationBuilder"/>.
+/// UseAspNetCoreSharedServer from AspNetCoreSharedServer.Middleware, run through a real pipeline built with <see cref="ApplicationBuilder"/>.
 /// The end-to-end tests cover it behind the real server, through the test app, which uses it.
 /// </summary>
 public class ProxyHttp3MiddlewareTests
@@ -33,7 +33,7 @@ public class ProxyHttp3MiddlewareTests
     [Fact]
     public async Task Sends_the_header_value_it_is_given()
     {
-        var context = await RunAsync(app => app.UseProxyHttp3(Header));
+        var context = await RunAsync(app => app.UseAspNetCoreSharedServer(Header));
 
         Assert.Equal(Header, context.Response.Headers["Alt-Svc"].Single());
     }
@@ -43,7 +43,7 @@ public class ProxyHttp3MiddlewareTests
     {
         string? seen = null;
 
-        await RunAsync(app => app.UseProxyHttp3(Header), terminal: context => seen = context.Response.Headers["Alt-Svc"]);
+        await RunAsync(app => app.UseAspNetCoreSharedServer(Header), terminal: context => seen = context.Response.Headers["Alt-Svc"]);
 
         Assert.Equal(Header, seen);
     }
@@ -55,7 +55,7 @@ public class ProxyHttp3MiddlewareTests
     {
         var reached = false;
 
-        var context = await RunAsync(app => app.UseProxyHttp3(value), terminal: _ => reached = true);
+        var context = await RunAsync(app => app.UseAspNetCoreSharedServer(value), terminal: _ => reached = true);
 
         Assert.False(context.Response.Headers.ContainsKey("Alt-Svc"));
         Assert.True(reached);
@@ -67,7 +67,7 @@ public class ProxyHttp3MiddlewareTests
         // "Safe to leave in" means free: with an empty variable the pipeline is the one without the call.
         var builder = new ApplicationBuilder(new ServiceCollection().BuildServiceProvider());
 
-        var returned = builder.UseProxyHttp3(null);
+        var returned = builder.UseAspNetCoreSharedServer(null);
 
         Assert.Same(builder, returned);
         builder.Run(_ => Task.CompletedTask);
@@ -81,7 +81,7 @@ public class ProxyHttp3MiddlewareTests
     public async Task Sets_the_header_on_every_request()
     {
         var builder = new ApplicationBuilder(new ServiceCollection().BuildServiceProvider());
-        builder.UseProxyHttp3(Header);
+        builder.UseAspNetCoreSharedServer(Header);
         builder.Run(_ => Task.CompletedTask);
         var pipeline = builder.Build();
 
@@ -100,7 +100,7 @@ public class ProxyHttp3MiddlewareTests
         var context = new DefaultHttpContext();
         context.Response.Headers["Alt-Svc"] = "h3=\":58705\""; // what Kestrel would advertise: its own internal port
 
-        await RunAsync(app => app.UseProxyHttp3(Header), context);
+        await RunAsync(app => app.UseAspNetCoreSharedServer(Header), context);
 
         Assert.Equal(new[] { Header }, context.Response.Headers["Alt-Svc"].ToArray());
     }
@@ -108,20 +108,20 @@ public class ProxyHttp3MiddlewareTests
     [Fact]
     public async Task Reads_the_value_from_the_environment_variable_the_server_sets()
     {
-        var previous = Environment.GetEnvironmentVariable(ProxyHttp3Extensions.AltSvcVariable);
+        var previous = Environment.GetEnvironmentVariable(AspNetCoreSharedServerExtensions.AltSvcVariable);
         try
         {
-            Environment.SetEnvironmentVariable(ProxyHttp3Extensions.AltSvcVariable, Header);
-            var withValue = await RunAsync(app => app.UseProxyHttp3());
-            Environment.SetEnvironmentVariable(ProxyHttp3Extensions.AltSvcVariable, "");
-            var withoutValue = await RunAsync(app => app.UseProxyHttp3());
+            Environment.SetEnvironmentVariable(AspNetCoreSharedServerExtensions.AltSvcVariable, Header);
+            var withValue = await RunAsync(app => app.UseAspNetCoreSharedServer());
+            Environment.SetEnvironmentVariable(AspNetCoreSharedServerExtensions.AltSvcVariable, "");
+            var withoutValue = await RunAsync(app => app.UseAspNetCoreSharedServer());
 
             Assert.Equal(Header, withValue.Response.Headers["Alt-Svc"].Single());
             Assert.False(withoutValue.Response.Headers.ContainsKey("Alt-Svc"));
         }
         finally
         {
-            Environment.SetEnvironmentVariable(ProxyHttp3Extensions.AltSvcVariable, previous);
+            Environment.SetEnvironmentVariable(AspNetCoreSharedServerExtensions.AltSvcVariable, previous);
         }
     }
 
@@ -129,12 +129,12 @@ public class ProxyHttp3MiddlewareTests
     public void Uses_the_same_variable_name_as_the_server()
     {
         // The middleware package does not reference the server, so the two names are kept in step by this test.
-        Assert.Equal(Server.AltSvcVariable, ProxyHttp3Extensions.AltSvcVariable);
+        Assert.Equal(Server.AltSvcVariable, AspNetCoreSharedServerExtensions.AltSvcVariable);
     }
 
     [Fact]
     public void Rejects_a_missing_application_builder()
     {
-        Assert.Throws<ArgumentNullException>(() => ProxyHttp3Extensions.UseProxyHttp3(null!));
+        Assert.Throws<ArgumentNullException>(() => AspNetCoreSharedServerExtensions.UseAspNetCoreSharedServer((IApplicationBuilder)null!));
     }
 }

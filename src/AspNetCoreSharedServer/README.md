@@ -79,7 +79,10 @@ name in `/etc/aspnet-server`. When the configuration is changed, changes are app
   uses fewer RAM.
 - `EnableProxyHeader` and `EnableProxyV2Header` (per application, default off): The server will send a PROXY V1/V2 header to
   Kestrel, so that the application can see the real address of the client. Note that Kestrel does not support this header
-  natively, and you must use a middleware like `Scintillating.ProxyProtocol.Middleware`.
+  natively, and you must use a middleware like `Scintillating.ProxyProtocol.Middleware`; the NuGet package
+  `AspNetCoreSharedServer.Middleware` turns it on for you with `builder.WebHost.UseAspNetCoreSharedServer()` when `PROXY_PROTOCOL` is set. That is an environment
+  variable the server sets for the application to `v1` or `v2`, so that it knows that every TCP connection starts with that
+  header and which version it is (`v2` if both options are set). The variable is not set when no header is sent.
 - `EnableHttp3` (global or per application, default `true`) forwards HTTP/3 (QUIC over UDP) for applications that have an
   `https` URL in `ListenUrls`. See [HTTP/3](#http3). It is switched off automatically for an application that has
   `EnableProxyHeader` or `EnableProxyV2Header` set.
@@ -121,17 +124,17 @@ HTTP/3 (QUIC) to the application. The application has to do two things:
 1. Kestrel must listen on the HTTPS port it is given in `ASPNETCORE_URLS` with `HttpProtocols.Http1AndHttp2AndHttp3`.
 2. The application must tell clients where to find HTTP/3. Kestrel only knows its own internal port, so on its own it would
    advertise a port that clients cannot reach. AspNetCoreSharedServer therefore passes the correct `Alt-Svc` header value, for
-   example `h3=":443"; ma=86400`, in the environment variable `ALT_SVC_HEADER`. The NuGet package
+   example `h3=":443"; ma=86400`, in the environment variable `HTTP3_ALT_SVC_HEADER`. The NuGet package
    `AspNetCoreSharedServer.Middleware` sends it for you with one line:
 
    ```csharp
-   app.UseProxyHttp3();
+   app.UseAspNetCoreSharedServer();
    ```
 
    Without the package, send it yourself with every response:
 
    ```csharp
-   var altSvc = Environment.GetEnvironmentVariable("ALT_SVC_HEADER");
+   var altSvc = Environment.GetEnvironmentVariable("HTTP3_ALT_SVC_HEADER");
    if (!string.IsNullOrEmpty(altSvc))
    {
        app.Use(async (context, next) =>
@@ -142,7 +145,7 @@ HTTP/3 (QUIC) to the application. The application has to do two things:
    }
    ```
 
-   `ALT_SVC_HEADER` is empty, and `HTTP3_ENABLED` is `false`, when HTTP/3 is not forwarded for the application.
+   `HTTP3_ALT_SVC_HEADER` is empty, and `HTTP3_ENABLED` is `false`, when HTTP/3 is not forwarded for the application.
 
 Things to know:
 - A UDP datagram never starts an application. Without a running application HTTP/3 requests are dropped, and clients fall back to
