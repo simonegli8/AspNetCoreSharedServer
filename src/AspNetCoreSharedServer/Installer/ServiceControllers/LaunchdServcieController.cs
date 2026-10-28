@@ -20,7 +20,7 @@ public class LaunchdServiceController : ServiceController
 	public override IEnumerable<OSService> All()
 	{
 		var servicesText = Shell.Exec("launchctl list").Output().Result;
-		var matches = Regex.Matches(servicesText, @"^\s*(?<name>.+?)\s+(?<pid>\d+)\s*$", RegexOptions.Multiline);
+		var matches = Regex.Matches(servicesText ?? "", @"^\s*(?<name>.+?)\s+(?<pid>\d+)\s*$", RegexOptions.Multiline);
 		foreach (Match match in matches)
 		{
 			var name = match.Groups["name"].Value;
@@ -46,7 +46,7 @@ public class LaunchdServiceController : ServiceController
 		}
 	}
 
-	public override OSService Info(string serviceId)
+	public override OSService? Info(string serviceId)
 	{
 		var output = Shell.Exec($"launchctl print system/{serviceId}").Output().Result;
 		if (output == null) return null;
@@ -63,7 +63,7 @@ public class LaunchdServiceController : ServiceController
 			else return null;
 		}
 		var match = Regex.Match(output, @"^\s*state\s*=\s*(?<state>.+?)\s*?$", RegexOptions.Multiline);
-		string status = null;
+		string? status = null;
 		if (match.Success)
 		{
 			status = match.Groups["state"].Value;

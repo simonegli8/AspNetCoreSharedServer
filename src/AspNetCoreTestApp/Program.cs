@@ -14,7 +14,7 @@ public class Program
 		builder.Services.AddRazorPages();
 
 
-		var urls = builder.Configuration["URLS"]?.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+		var urls = builder.Configuration["URLS"]?.Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries) ?? Array.Empty<string>();
 		int? httpPort = urls.Select(url => new Uri(url))
 			.FirstOrDefault(uri => uri.Scheme == "http")
 			?.Port;

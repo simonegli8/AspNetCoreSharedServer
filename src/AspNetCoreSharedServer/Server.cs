@@ -24,7 +24,7 @@ public class Server
 {
     public const int BufferSize = 4 * 1024;
     public const string ShutdownMessage = "Application is shutting down...";
-    public ILogger Logger => Configuration.Current.Logger;
+    public ILogger Logger => (ILogger?)Configuration.Current.Logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
     public CancellationTokenSource TcpCancel = new CancellationTokenSource();
     public CancellationTokenSource UdpCancel = new CancellationTokenSource();
 
@@ -90,7 +90,7 @@ public class Server
     Process ServerProcess = new Process();
     //public CancellationTokenSource Cancel = new CancellationTokenSource();
 
-    public virtual string Find(string cmd) => Services.Shell.Standard.Find(cmd);
+    public virtual string? Find(string cmd) => Services.Shell.Standard.Find(cmd);
 
     public Server(Proxy proxy)
     {

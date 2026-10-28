@@ -99,7 +99,7 @@ public class Configuration
             else
             {
                 await Configuration.Current.LoadAsync();
-                var apps = Configuration.Current.Applications;
+                var apps = Configuration.Current.Applications ?? new Applications();
                 port = StartPort;
                 var usedPorts = new HashSet<int>(apps
                     .SelectMany(app => app.ListenUrls.Split(';')
@@ -139,7 +139,7 @@ public class Configuration
                     }
                 } while (true);
             }
-            localEP = (IPEndPoint)socket.LocalEndPoint;
+            localEP = (IPEndPoint)socket.LocalEndPoint!;
             port = localEP.Port;
         }
         finally
@@ -164,7 +164,7 @@ public class Configuration
             else
             {
                 Configuration.Current.Load();
-                var apps = Configuration.Current.Applications;
+                var apps = Configuration.Current.Applications ?? new Applications();
                 port = StartPort;
                 var usedPorts = new HashSet<int>(apps
                     .SelectMany(app => app.ListenUrls.Split(';')
@@ -204,7 +204,7 @@ public class Configuration
                     }
                 } while (true);
             }
-            localEP = (IPEndPoint)socket.LocalEndPoint;
+            localEP = (IPEndPoint)socket.LocalEndPoint!;
             port = localEP.Port;
         }
         finally
@@ -225,7 +225,7 @@ public class Configuration
 
 #if Server
     [JsonIgnore]
-    public ILogger<Worker> Logger { get; set; } = null;
+    public ILogger<Worker>? Logger { get; set; } = null;
 #endif
     [DefaultValue(null)]
     public Applications? Applications { get; set; } = new Applications();
@@ -385,6 +385,7 @@ public class Configuration
                             {
 #if Server
                                 Logger?.LogError($"Error parsing {Path.GetFileName(file)}.");
+                                return null;
 #else
                                 throw new InvalidOperationException($"Error parsing {Path.GetFileName(file)}.");
 #endif
@@ -435,7 +436,7 @@ public class Configuration
 #endif
                             return app;
                         })
-                        .Where(app => app != null);
+                        .OfType<Application>();
                     foreach (var sconfig in separateConfigs) config.Applications.Add(sconfig);
                     if (hasError) await config.SaveAsync(true, false);
                 }
@@ -567,10 +568,10 @@ public class Configuration
                             {
 #if Server
                                 Logger?.LogError($"Error parsing {Path.GetFileName(file)}.");
+                                return null;
 #else
                                 throw new InvalidOperationException($"Error parsing {Path.GetFileName(file)}.");
 #endif
-                                return null;
                             }
                             if (app.Environment == null) app.Environment = new Dictionary<string, string>();
                             app.IsSeparateFile = true;
@@ -619,7 +620,7 @@ public class Configuration
 #endif
                             return app;
                         })
-                        .Where(app => app != null);
+                        .OfType<Application>();
                     foreach (var sconfig in separateConfigs) config.Applications.Add(sconfig);
                     if (hasError) config.Save(true, false);
                 }
@@ -654,7 +655,7 @@ public class Configuration
     {
         // Without a user the app is not started under another account, so the group is not applied.
         if (string.IsNullOrEmpty(group) || string.IsNullOrEmpty(user)) return null;
-        if (OSInfo.IsWindows || Unix.IsUserInGroup(user, group)) return null;
+        if (OSInfo.IsWindows || Unix.IsUserInGroup(user!, group!)) return null;
         return $"Group '{group}' is not allowed: only a group that user '{user}' belongs to can be set here. Only root can set other groups.";
     }
 
@@ -678,7 +679,7 @@ public class Configuration
         {
             try
             {
-                var config = await LoadConfigAsync();
+                var config = await LoadConfigAsync() ?? throw new InvalidOperationException("The configuration could not be loaded.");
                 if (Applications == null) Applications = new Applications();
                 IdleTimeout = config.IdleTimeout;
                 Recycle = config.Recycle;
@@ -849,7 +850,7 @@ public class Configuration
         {
             try
             {
-                var config = LoadConfig();
+                var config = LoadConfig() ?? throw new InvalidOperationException("The configuration could not be loaded.");
 #if Server
                 if (config.Command == Command.Shutdown)
                 {
@@ -950,7 +951,7 @@ public class Configuration
 
                         if (oapp.Proxy != null)
                         {
-                            oapp.Proxy.Shutdown(false);
+                            oapp.Proxy?.Shutdown(false);
                             oapp.Proxy = null;
                         }
 #endif
@@ -964,7 +965,7 @@ public class Configuration
 #if Server
                             if (oapp.Proxy != null)
                             {
-                                oapp.Proxy.Shutdown(false);
+                                oapp.Proxy?.Shutdown(false);
                                 oapp.Proxy = null;
                             }
 #endif
@@ -990,7 +991,7 @@ public class Configuration
 
                     /*if (oapp.Proxy != null)
                     {
-                        oapp.Proxy.Shutdown();
+                        oapp.Proxy?.Shutdown();
                         oapp.Proxy = null;
                     }*/
 #endif
@@ -1059,7 +1060,7 @@ public class Configuration
 
     public void SaveInternal(bool disableWatcher)
     {
-        var dir = Path.GetDirectoryName(ConfigPath);
+        var dir = Path.GetDirectoryName(ConfigPath)!;
         if (!Directory.Exists(dir))
         {
             Directory.CreateDirectory(dir);
@@ -1280,7 +1281,7 @@ public class Configuration
 #if Server
                     if (oapp.Proxy != null)
                     {
-                        oapp.Proxy.Shutdown(false);
+                        oapp.Proxy?.Shutdown(false);
                         oapp.Proxy = null;
                     }
 #endif
@@ -1379,7 +1380,7 @@ public class Configuration
 #if Server
                 if (app.Proxy != null)
                 {
-                    app.Proxy.Shutdown();
+                    app.Proxy?.Shutdown();
                     app.Proxy = null;
                 }
 #endif
@@ -1394,7 +1395,7 @@ public class Configuration
     public void Remove(Application app) => Remove(app.Name);
     public async Task RemoveAsync(Application app) => await RemoveAsync(app.Name);
 
-    static Configuration configuration = null;
+    static Configuration? configuration = null;
     public static Configuration Current => configuration ??= new Configuration();
 
     static Configuration() { }
@@ -1404,7 +1405,7 @@ public class Configuration
 
     public void Watch()
     {
-        var dir = Path.GetDirectoryName(ConfigPath);
+        var dir = Path.GetDirectoryName(ConfigPath)!;
         if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
 
         watcher = new FileSystemWatcher(dir, "*.json");
@@ -1431,7 +1432,7 @@ public class Configuration
     }
     public async Task WatchAsync()
     {
-        var dir = Path.GetDirectoryName(ConfigPath);
+        var dir = Path.GetDirectoryName(ConfigPath)!;
         if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
 
         watcher = new FileSystemWatcher(dir, "*.json");
@@ -1477,7 +1478,7 @@ public class Configuration
             {
                 app.Status = Status.Stopped;
             }
-            config.Save(false, false);
+            config?.Save(false, false);
         }
         var tasks = apps
             .Where(app => app.Proxy != null)
@@ -1485,7 +1486,7 @@ public class Configuration
             {
                 return Task.Run(() =>
                 {
-                    app.Proxy.Shutdown();
+                    app.Proxy?.Shutdown();
                     app.Proxy = null;
                 });
             });
@@ -1549,7 +1550,7 @@ public class Configuration
             {
                 return Task.Run(() =>
                 {
-                    app.Proxy.Shutdown(false);
+                    app.Proxy?.Shutdown(false);
                     app.Proxy = null;
                 });
             });
@@ -1574,7 +1575,7 @@ public class Configuration
                 {
                     return Task.Run(async () =>
                     {
-                        await app.Proxy.ShutdownAsync(false);
+                        await (app.Proxy?.ShutdownAsync(false) ?? Task.CompletedTask);
                         app.Proxy = null;
                     });
                 });
@@ -1609,7 +1610,7 @@ public class Applications : KeyedCollection<string, Application>
         if (item.Name == "applications") throw new NotSupportedException("Application name \"applications\" is reserved.");
         base.SetItem(index, item);
     }
-    public new Application this[string name]
+    public new Application? this[string name]
     {
         get
         {
@@ -1707,7 +1708,7 @@ public class Application
         using var mutex = AspServer.Lock();
         if (load) Configuration.Current.Load(false);
         var config = Configuration.Current;
-        var app = config.Applications[Name];
+        var app = config.Applications?[Name];
         if (app != null && (app.Status != status || app.Error != error))
         {
             bool disableChanged = false;
@@ -1773,7 +1774,7 @@ public class Application
         {
             if (file.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
             {
-                AssemblyDefinition assembly = null;
+                AssemblyDefinition? assembly = null;
                 try
                 {
                     assembly = AssemblyDefinition.ReadAssembly(file);
@@ -1829,7 +1830,7 @@ public static class AspServer
 {
     public static Configuration Configuration => Configuration.Current;
 
-    static void SetOffline(string appId, bool disabled)
+    static void SetOffline(string? appId, bool disabled)
     {
         if (appId == null)
         {
@@ -1846,15 +1847,15 @@ public static class AspServer
         {
             using var mutex = Configuration.Lock();
             var config = Configuration.LoadConfig();
-            if (config != null && config.Applications != null && config.Applications[appId].Offline != disabled)
+            if (config?.Applications?[appId] is { } target && target.Offline != disabled)
             {
-                config.Applications[appId].Offline = disabled;
+                target.Offline = disabled;
                 config.Save(true, false);
                 Configuration.Load(false);
             }
         }
     }
-    static async Task SetOfflineAsync(string appId, bool disabled)
+    static async Task SetOfflineAsync(string? appId, bool disabled)
     {
         if (appId == null)
         {
@@ -1871,31 +1872,31 @@ public static class AspServer
         {
             using var mutex = await Configuration.LockAsync();
             var config = await Configuration.LoadConfigAsync();
-            if (config != null && config.Applications != null && config.Applications[appId].Offline != disabled)
+            if (config?.Applications?[appId] is { } target && target.Offline != disabled)
             {
-                config.Applications[appId].Offline = disabled;
+                target.Offline = disabled;
                 await config.SaveAsync(true, false);
                 await Configuration.LoadAsync(false);
             }
         }
     }
 
-    public static void Start(string appId = null) => SetOffline(appId, false);
-    public static void Stop(string appId = null) => SetOffline(appId, true);
-    public static void Restart(string appId = null)
+    public static void Start(string? appId = null) => SetOffline(appId, false);
+    public static void Stop(string? appId = null) => SetOffline(appId, true);
+    public static void Restart(string? appId = null)
     {
         Stop(appId);
         Start(appId);
     }
-    public static async Task StartAsync(string appId = null) => await SetOfflineAsync(appId, false);
-    public static async Task StopAsync(string appId = null) => await SetOfflineAsync(appId, true);
-    public static async Task RestartAsync(string appId = null)
+    public static async Task StartAsync(string? appId = null) => await SetOfflineAsync(appId, false);
+    public static async Task StopAsync(string? appId = null) => await SetOfflineAsync(appId, true);
+    public static async Task RestartAsync(string? appId = null)
     {
         await StopAsync(appId);
         await StartAsync(appId);
     }
 
-    public static Status Status(string appId = null)
+    public static Status Status(string? appId = null)
     {
         using var mutex = Configuration.Lock();
         if (appId == null)
@@ -1904,11 +1905,11 @@ public static class AspServer
         }
         else
         {
-            return Configuration.Applications?[appId].Status ??
+            return Configuration.Applications?[appId]?.Status ??
                 throw new KeyNotFoundException($"There is no application {appId}");
         }
     }
-    public static async Task<Status> StatusAsync(string appId = null)
+    public static async Task<Status> StatusAsync(string? appId = null)
     {
         using var mutex = await Configuration.LockAsync();
         if (appId == null)
@@ -1917,7 +1918,7 @@ public static class AspServer
         }
         else
         {
-            return Configuration.Applications?[appId].Status ??
+            return Configuration.Applications?[appId]?.Status ??
                 throw new KeyNotFoundException($"There is no application {appId}");
         }
     }

@@ -51,7 +51,7 @@ public class SyslogLogger : ILogger
         _category = category;
     }
 
-    public IDisposable BeginScope<TState>(TState state) => default!;
+    public IDisposable BeginScope<TState>(TState state) where TState : notnull => default!;
 
     public bool IsEnabled(LogLevel logLevel) => true;
 

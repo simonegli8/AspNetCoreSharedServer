@@ -18,7 +18,7 @@ public class Program
     }
 
     static AsyncMutexLock applockmutex = new AsyncMutexLock("AspNetCoreSharedServer.AssertOnlyOneInstance", MutexScope.Machine);
-    static IDisposable applock = null;
+    static IDisposable? applock = null;
     
     private static async Task AssertOnlyOneInstance()
     {
@@ -276,7 +276,7 @@ public class Program
                     if (args.Length == 1)
                     {
                         var info = Installer.ServiceController.Info(Installer.ServiceId);
-                        Console.WriteLine(info.Status.ToString());
+                        Console.WriteLine(info?.Status.ToString());
                     }
                     else
                     {
@@ -375,7 +375,7 @@ possible values for argument:
         {
             using (await Configuration.LockAsync())
             {
-                config = await config.LoadConfigAsync(false);
+                config = await config.LoadConfigAsync(false) ?? throw new InvalidOperationException("The configuration could not be loaded.");
             }
         }
         catch (Exception e) { }

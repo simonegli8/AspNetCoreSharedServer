@@ -51,7 +51,7 @@ public class OpenRCServiceController: ServiceController
 		if (!string.IsNullOrEmpty(srvc.CommandArgs)) body.AppendLine($"command_args=\"{srvc.CommandArgs}\"");
 		if (!string.IsNullOrEmpty(srvc.CommandArgsBackground)) body.AppendLine($"command_args_background=\"{srvc.CommandArgsBackground}\"");
 		if (!string.IsNullOrEmpty(srvc.PidFile)) body.AppendLine($"pidfile=\"{srvc.PidFile}\"");
-		if (srvc.CommandBackground != null) body.AppendLine($"command_background={srvc.CommandBackground.ToString().ToLower()}");
+		if (srvc.CommandBackground != null) body.AppendLine($"command_background={srvc.CommandBackground.Value.ToString().ToLower()}");
 		if (!string.IsNullOrEmpty(srvc.CommandUser)) body.AppendLine($"command_user=\"{srvc.CommandUser}\"");
 		if (!string.IsNullOrEmpty(srvc.Capabilities)) body.AppendLine($"capabilities=\"{srvc.Capabilities}\"");
 		if (!string.IsNullOrEmpty(srvc.Procname)) body.AppendLine($"procname=\"{srvc.Procname}\"");
@@ -113,7 +113,7 @@ public class OpenRCServiceController: ServiceController
 			if (Shell.Exec($"rc-service -e {serviceId}").ExitCode().Result == 0)
 			{
 				var output = Shell.Exec($"rc-service -C {serviceId} status").Output().Result;
-				var match = Regex.Match(output, @"^.*status\s*:\s*(?<status>.+?)\s*$", RegexOptions.Multiline);
+				var match = Regex.Match(output ?? "", @"^.*status\s*:\s*(?<status>.+?)\s*$", RegexOptions.Multiline);
 				var stat = OSServiceStatus.Stopped;
 				switch (match.Groups["status"].Value)
 				{
@@ -156,11 +156,11 @@ public class OpenRCServiceController: ServiceController
 	public override IEnumerable<OSService> All()
 	{
 		var servicesText = Shell.Exec("rc-service -l").Output().Result;
-		var services = servicesText.Split('\n').Select(s => s.Trim());
+		var services = (servicesText ?? "").Split('\n').Select(s => s.Trim());
 		foreach (var service in services)
 		{
 			var name = service;
-			var status = Regex.Match(Shell.Exec($"rc-service -C {name} status").Output().Result,
+			var status = Regex.Match(Shell.Exec($"rc-service -C {name} status").Output().Result ?? "",
 				@"(?<=^\s*\*\s*status:\s*).*?$").Value.Trim();
 			var script = Shell.Exec($"rc-service -r {name}").Output().Result;
 			bool running = status != "stopped" && status != "crashed";
@@ -184,7 +184,7 @@ public class OpenRCServiceController: ServiceController
 		}
 	}
 
-	public override OSService Info(string serviceId) => All().FirstOrDefault(s => s.Id == serviceId);
+	public override OSService? Info(string serviceId) => All().FirstOrDefault(s => s.Id == serviceId);
 
 	public override void Remove(string serviceId)
 	{

@@ -20,7 +20,7 @@ public class Proxy
 
     public string Assembly;
     public string Arguments;
-    public Application Application = null;
+    public Application Application = null!;
     public string ListenUrls = string.Empty;
     public string OriginalUrls = string.Empty;
     public bool HasHttp = false, HasHttps = false, HasNetTcp = false;
@@ -51,7 +51,7 @@ public class Proxy
         return false;
     }
 
-    public ILogger Logger => Configuration.Current.Logger;
+    public ILogger Logger => (ILogger?)Configuration.Current.Logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
 
     public List<TcpListener> Http = new List<TcpListener>(), Https = new List<TcpListener>(),
         NetTcp = new List<TcpListener>();
@@ -112,7 +112,7 @@ public class Proxy
         }
         if (HasHttp)
         {
-            if (httpUri.Port == 0)
+            if (httpUri!.Port == 0)
             {
                 httpPort = await Configuration.FindFreePortAsync();
                 actualurls.Add($"http://{httpUri.Host}:{httpPort}");
@@ -126,7 +126,7 @@ public class Proxy
 
         if (HasHttps)
         {
-            if (httpsUri.Port == 0)
+            if (httpsUri!.Port == 0)
             {
                 httpsPort = await Configuration.FindFreePortAsync();
                 actualurls.Add($"https://{httpsUri.Host}:{httpsPort}");
@@ -140,7 +140,7 @@ public class Proxy
 
         if (HasNetTcp)
         {
-            if (nettcpUri.Port == 0)
+            if (nettcpUri!.Port == 0)
             {
                 nettcpPort = await Configuration.FindFreePortAsync();
                 actualurls.Add($"net.tcp://{nettcpUri.Host}:{nettcpPort}");
@@ -168,7 +168,7 @@ public class Proxy
                 {
                     IPAddress? ip;
                     List<IPAddress> ips = new List<IPAddress>();
-                    if (httpUri.Host == "0.0.0.0") ips.Add(IPAddress.Any);
+                    if (httpUri!.Host == "0.0.0.0") ips.Add(IPAddress.Any);
                     else if (httpUri.Host == "[::]") ips.Add(IPAddress.IPv6Any);
                     else if (httpUri.Host == "127.0.0.1") ips.Add(IPAddress.Loopback);
                     else if (httpUri.Host == "[::1]") ips.Add(IPAddress.IPv6Loopback);
@@ -189,7 +189,7 @@ public class Proxy
                 {
                     IPAddress? ip;
                     List<IPAddress> ips = new List<IPAddress>();
-                    if (httpsUri.Host == "0.0.0.0") ips.Add(IPAddress.Any);
+                    if (httpsUri!.Host == "0.0.0.0") ips.Add(IPAddress.Any);
                     else if (httpsUri.Host == "[::]") ips.Add(IPAddress.IPv6Any);
                     else if (httpsUri.Host == "127.0.0.1") ips.Add(IPAddress.Loopback);
                     else if (httpsUri.Host == "[::1]") ips.Add(IPAddress.IPv6Loopback);
@@ -211,7 +211,7 @@ public class Proxy
                 {
                     IPAddress? ip;
                     List<IPAddress> ips = new List<IPAddress>();
-                    if (nettcpUri.Host == "0.0.0.0") ips.Add(IPAddress.Any);
+                    if (nettcpUri!.Host == "0.0.0.0") ips.Add(IPAddress.Any);
                     else if (nettcpUri.Host == "[::]") ips.Add(IPAddress.IPv6Any);
                     else if (nettcpUri.Host == "127.0.0.1") ips.Add(IPAddress.Loopback);
                     else if (nettcpUri.Host == "[::1]") ips.Add(IPAddress.IPv6Loopback);

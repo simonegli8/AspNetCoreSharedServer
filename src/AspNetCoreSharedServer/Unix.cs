@@ -142,7 +142,7 @@ public class Unix
         else throw new FileNotFoundException(path);
 
         var prop = info.GetType().GetProperty("UnixFileMode", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
-        return (UnixFileMode)prop.GetValue(info)!;
+        return (UnixFileMode)(prop?.GetValue(info) ?? throw new PlatformNotSupportedException("FileSystemInfo.UnixFileMode is not available."));
     }
 
     [DllImport("libc", SetLastError = true)]
@@ -160,14 +160,14 @@ public class Unix
             if (string.IsNullOrEmpty(groupName)) groupName = current.Group;
         }
 
-        IntPtr pwdPtr = getpwnam(username);
+        IntPtr pwdPtr = getpwnam(username!);
 
         if (pwdPtr == IntPtr.Zero)
             throw new Exception($"User not found: {username}");
 
         Passwd pwd = Marshal.PtrToStructure<Passwd>(pwdPtr);
 
-        IntPtr grpPtr = getgrnam(groupName);
+        IntPtr grpPtr = getgrnam(groupName!);
 
         if (grpPtr == IntPtr.Zero)
             throw new Exception($"Group not found: {groupName}");

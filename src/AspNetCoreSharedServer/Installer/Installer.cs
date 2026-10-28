@@ -17,7 +17,7 @@ public class Installer
     public const string AdminGroup = Configuration.AdminGroup;
     public const string WwwData = Configuration.WwwData;
     public static Shell Shell => Shell.Standard;
-    public static ILogger Log => Configuration.Current.Logger;
+    public static ILogger? Log => Configuration.Current.Logger;
 
     public static string LogsPath
     {
@@ -68,7 +68,7 @@ public class Installer
             await Shell.ExecAsync($"dscl . create /Groups/{group} Password \"*\"");
             // Get free PrimaryGroupID
             var output = await Shell.ExecAsync($"dscl . list /Groups PrimaryGroupID").Output();
-            var maxid = Regex.Matches(output, @"(?<=^\s*[^ \t]+\s+)[0-9]+", RegexOptions.Multiline)
+            var maxid = Regex.Matches(output ?? "", @"(?<=^\s*[^ \t]+\s+)[0-9]+", RegexOptions.Multiline)
             .OfType<Match>()
                 .Select(m =>
             {
@@ -107,9 +107,9 @@ public class Installer
             }
 
             var shell = Shell.ExecAsync($"passwd {user}");
-            if (OSInfo.IsMac) shell.Input.WriteLine();
-            shell.Input.WriteLine(password);
-            shell.Input.WriteLine(password);
+            if (OSInfo.IsMac) shell.Input!.WriteLine();
+            shell.Input!.WriteLine(password);
+            shell.Input!.WriteLine(password);
 
             if (user == WwwData)
             {
@@ -121,10 +121,10 @@ public class Installer
                 }
             }
 
-            Log.LogInformation($"Added system user {user}.");
+            Log?.LogInformation($"Added system user {user}.");
         }
     }
-    static ServiceController serviceController = null;
+    static ServiceController? serviceController = null;
     public static ServiceController ServiceController
     {
         get
@@ -150,14 +150,14 @@ public class Installer
 
         const int MaxTry = 10;
         int n = 0;
-        while (service.Info.Status != OSServiceStatus.Running && n++ < MaxTry)
+        while (service.Info?.Status != OSServiceStatus.Running && n++ < MaxTry)
         {
             Console.WriteLine($"Problems starting service {description.ServiceId}, retry for {MaxTry + 1 - n} seconds");
             service.Start();
             await Task.Delay(1000);
         }
 
-        if (service.Info.Status != OSServiceStatus.Running)
+        if (service.Info?.Status != OSServiceStatus.Running)
         {
             //Environment.Exit(9);
             throw new Exception($"Failed to start {description.ServiceId} service.");
@@ -172,7 +172,7 @@ public class Installer
         if (File.Exists(Configuration.Current.ConfigPathOld))
         {
             // import old config path /etc/aspnetcore if it exists to /etc/aspnet-server
-            var path = Path.GetDirectoryName(Configuration.Current.ConfigPath);
+            var path = Path.GetDirectoryName(Configuration.Current.ConfigPath)!;
             if (!System.IO.Directory.Exists(path))
             {
                 System.IO.Directory.CreateDirectory(path);
@@ -181,7 +181,7 @@ public class Installer
             File.Copy(Configuration.Current.ConfigPathOld, Configuration.Current.ConfigPath, true);
             if (!OSInfo.IsWindows) Unix.SetFilePermissions(Configuration.Current.ConfigPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
 
-            System.IO.Directory.Delete(Path.GetDirectoryName(Configuration.Current.ConfigPathOld), true);
+            System.IO.Directory.Delete(Path.GetDirectoryName(Configuration.Current.ConfigPathOld)!, true);
 
             var oldname = "aspnetcore-shared-server";
             var oldservice = ServiceController.Info(oldname);
@@ -215,7 +215,7 @@ public class Installer
             await AddUnixUser(WwwData, WwwData, GetRandomString(16));
 
             var configfile = Configuration.Current.ConfigPath;
-            var configpath = Path.GetDirectoryName(configfile);
+            var configpath = Path.GetDirectoryName(configfile)!;
             if (!System.IO.Directory.Exists(configpath))
             {
                 System.IO.Directory.CreateDirectory(configpath);
@@ -245,7 +245,7 @@ public class Installer
             {
                 using (var mutex = await Configuration.LockAsync())
                 {
-                    conf = await conf.LoadConfigAsync();
+                    conf = await conf.LoadConfigAsync() ?? throw new InvalidOperationException("The configuration could not be loaded.");
                     conf.EnableHttp3 = false;
                     conf.User = WwwData;
                     conf.IdleTimeout = TimeSpan.FromMinutes(5);
@@ -263,7 +263,7 @@ public class Installer
         string Command;
         if (!OSInfo.IsMac) Command = $"/root/.dotnet/tools/{ServiceId}";
         else Command = $"/var/bin/{ServiceId}";
-        string Directory = Path.GetDirectoryName(Command);
+        string Directory = Path.GetDirectoryName(Command)!;
 
         ServiceDescription service;
         if (OSInfo.IsSystemd)
@@ -321,7 +321,7 @@ public class Installer
                 Environment = new Dictionary<string, string>()
             {
                 { "ASPNETCORE_ENVIRONMENT", "Production" },
-                { "PATH", Environment.GetEnvironmentVariable("PATH") }
+                { "PATH", Environment.GetEnvironmentVariable("PATH") ?? "" }
             },
                 ExitTimeout = 30,
                 KeepAlive = true,
