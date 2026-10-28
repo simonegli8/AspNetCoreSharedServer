@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/Solution Items/">
+    <File Path=".github/workflows/tests.yml" />
     <File Path=".gitignore" />
     <File Path="pack.bat" />
     <File Path="pack.sh" />
@@ -9,7 +10,7 @@
   <Project Path="src/AspNetCoreSharedServer.Api/AspNetCoreSharedServer.Api.csproj" />
   <Project Path="src/AspNetCoreSharedServer.Library/AspNetCoreSharedServer.Library.csproj" />
   <Project Path="src/AspNetCoreSharedServer.Middleware/AspNetCoreSharedServer.Middleware.csproj" />
-  <Project Path="src/AspNetCoreSharedServer/AspNetCoreSharedServer.csproj" />
   <Project Path="src/AspNetCoreSharedServer.Tests/AspNetCoreSharedServer.Tests.csproj" />
+  <Project Path="src/AspNetCoreSharedServer/AspNetCoreSharedServer.csproj" />
   <Project Path="src/AspNetCoreTestApp/AspNetCoreTestApp.csproj" />
 </Solution>
