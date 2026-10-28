@@ -14,9 +14,23 @@ dotnet test src/AspNetCoreSharedServer.Tests
 | `ProxyHeaderTests` | PROXY protocol v1/v2 headers: the destination is the address and port the client connected to. |
 | `AltSvcTests` | The `ALT_SVC_HEADER` / `HTTP3_ENABLED` values and how they reach the app (environment and sudo command line quoting). |
 | `PortAndProxyTests` | A port that is free for TCP and UDP, and HTTP/3 being switched off when a PROXY header is enabled. |
-| `UnixTests` | `Unix.IsUserInGroup`, which decides which groups an app owner may use. Linux only, skipped elsewhere. |
+| `UnixTests` | `Unix.IsUserInGroup`, which decides which groups an app owner may use, and `UserExists`/`GroupExists`. Linux only, skipped elsewhere. |
+| `SudoArgumentsTests` | The sudo command line with which the server starts an app as another user (Linux and macOS): `-H -u user [-g group] NAME=value... -- command`, with hostile values kept inside their own argument. |
+| `SudoLaunchTests` | **Needs root.** Starts a real process through that command line and checks from the inside that it is the other user completely (real and effective id) and cannot switch back to root. See below. |
 
 Tests that cannot run on a machine (no IPv6 loopback, not Linux, ...) are reported as skipped, not as passed.
+
+## The root-only test
+
+`SudoLaunchTests` protects the privilege drop: an app must not be able to get root back. Only root can start a process as another
+user, so the test is skipped for everybody else. Run the suite as root on Linux or macOS to include it:
+
+```
+sudo dotnet test src/AspNetCoreSharedServer.Tests
+```
+
+It needs `sudo`, `perl` (as the probe program) and the user `nobody`, which all standard Linux and macOS systems have. On macOS
+this is the only place where the privilege drop is checked, so run it once on a Mac.
 
 ## Running on Linux (or WSL)
 

@@ -1,0 +1,52 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <!-- The applications that run behind AspNetCoreSharedServer can be on any supported ASP.NET Core version. -->
+        <TargetFrameworks>net8.0;net9.0;net10.0</TargetFrameworks>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <RootNamespace>AspNetCoreSharedServer.Middleware</RootNamespace>
+        <DebugType>embedded</DebugType>
+
+        <IsPackable>true</IsPackable>
+        <PackageId>AspNetCoreSharedServer.Middleware</PackageId>
+        <PackageReadmeFile>README.md</PackageReadmeFile>
+        <Title>AspNetCoreSharedServer.Middleware</Title>
+        <Authors>simonegli8</Authors>
+        <Company>Estrellas de Esperanza</Company>
+        <Product>AspNetCoreSharedServer.Middleware</Product>
+        <Description>
+            Middleware for ASP.NET Core applications that run behind AspNetCoreSharedServer: UseProxyHttp3 advertises HTTP/3
+            on the public port of the server by sending the Alt-Svc header that AspNetCoreSharedServer provides.
+            AspNetCoreSharedServer is a proxy HTTP server for serving ASP.NET Core Kestrel behind a proxy like Apache or Nginx in shared hosting to only
+            start Kestrel on demand and shut it down when idle.
+        </Description>
+        <Copyright>Estrellas de Esperanza</Copyright>
+        <PackageProjectUrl>https://github.com/simonegli8/AspNetCoreSharedServer</PackageProjectUrl>
+        <RepositoryUrl>https://github.com/simonegli8/AspNetCoreSharedServer</RepositoryUrl>
+        <RepositoryType>git</RepositoryType>
+        <PackageTags>ASP.NET Core;shared hosting;running Kestrel on demand;HTTP/3;Alt-Svc</PackageTags>
+        <PackageLicenseExpression>MIT</PackageLicenseExpression>
+        <IncludeSymbols>false</IncludeSymbols>
+        <PublishRepositoryUrl>true</PublishRepositoryUrl>
+        <PackageOutputPath>..\..\nupkg</PackageOutputPath>
+        <RestoreSources>$(RestoreSources);..\..\nupkg;https://api.nuget.org/v3/index.json</RestoreSources>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <InternalsVisibleTo Include="AspNetCoreSharedServer.Tests" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <None Remove="README.md" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <Content Include="README.md" Pack="true" PackagePath="\" />
+    </ItemGroup>
+
+</Project>

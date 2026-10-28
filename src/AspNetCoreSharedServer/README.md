@@ -121,7 +121,14 @@ HTTP/3 (QUIC) to the application. The application has to do two things:
 1. Kestrel must listen on the HTTPS port it is given in `ASPNETCORE_URLS` with `HttpProtocols.Http1AndHttp2AndHttp3`.
 2. The application must tell clients where to find HTTP/3. Kestrel only knows its own internal port, so on its own it would
    advertise a port that clients cannot reach. AspNetCoreSharedServer therefore passes the correct `Alt-Svc` header value, for
-   example `h3=":443"; ma=86400`, in the environment variable `ALT_SVC_HEADER`. Send it with every response:
+   example `h3=":443"; ma=86400`, in the environment variable `ALT_SVC_HEADER`. The NuGet package
+   `AspNetCoreSharedServer.Middleware` sends it for you with one line:
+
+   ```csharp
+   app.UseProxyHttp3();
+   ```
+
+   Without the package, send it yourself with every response:
 
    ```csharp
    var altSvc = Environment.GetEnvironmentVariable("ALT_SVC_HEADER");

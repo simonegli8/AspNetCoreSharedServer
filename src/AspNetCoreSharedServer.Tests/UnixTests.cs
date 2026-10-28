@@ -28,6 +28,32 @@ public class UnixTests
     static void RequireLinux() => Skip.IfNot(OperatingSystem.IsLinux(), "Unix.IsUserInGroup is only used on Linux and macOS.");
 
     [SkippableFact]
+    public void Knows_which_users_and_groups_exist()
+    {
+        RequireLinux();
+
+        Assert.True(Unix.UserExists("root"));
+        Assert.True(Unix.GroupExists(Groups().First().Name));
+        Assert.False(Unix.UserExists("no-such-user-xyz"));
+        Assert.False(Unix.GroupExists("no-such-group-xyz"));
+        Assert.False(Unix.UserExists(""));
+        Assert.False(Unix.GroupExists(""));
+    }
+
+    [SkippableFact]
+    public void Leaves_numeric_ids_to_sudo()
+    {
+        RequireLinux();
+
+        // "#1001" is how sudo names a user or group by number. It resolves that itself, so it counts as existing here.
+        Assert.True(Unix.UserExists("#1001"));
+        Assert.True(Unix.GroupExists("#1001"));
+        // Anything else that starts with # is just a name that does not exist.
+        Assert.False(Unix.UserExists("#"));
+        Assert.False(Unix.UserExists("#12x"));
+    }
+
+    [SkippableFact]
     public void A_user_is_in_the_primary_group_of_their_account()
     {
         RequireLinux();

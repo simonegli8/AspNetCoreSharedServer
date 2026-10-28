@@ -32,11 +32,8 @@ public class Unix
     [DllImport("libc", SetLastError = true)]
     public static extern int chmod(string path, uint mode);
 
-    [DllImport("libc", SetLastError = true)]
-    public static extern int seteuid(uint euid); 
-    
-    [DllImport("libc", SetLastError = true)]
-    public static extern int setegid(uint egid);
+    // There is deliberately no seteuid/setegid here. Switching the effective user of the server around Process.Start leaves the real
+    // user as root, so the started app can switch back to root. Apps are started as another user with sudo, see Server.
 
     [StructLayout(LayoutKind.Sequential)]
     public struct Passwd
@@ -64,6 +61,15 @@ public class Unix
 
     [DllImport("libc")]
     public static extern IntPtr getgrnam(string name);
+
+    /// <summary>"#1001" is how sudo names a numeric id. sudo resolves it itself, so it is not looked up here.</summary>
+    static bool IsNumericId(string name) => name.Length > 1 && name[0] == '#' && name.Skip(1).All(c => c >= '0' && c <= '9');
+
+    /// <summary>True if the user account exists (or is a numeric "#id", which sudo resolves).</summary>
+    public static bool UserExists(string user) => !string.IsNullOrEmpty(user) && (IsNumericId(user) || getpwnam(user) != IntPtr.Zero);
+
+    /// <summary>True if the group exists (or is a numeric "#id", which sudo resolves).</summary>
+    public static bool GroupExists(string group) => !string.IsNullOrEmpty(group) && (IsNumericId(group) || getgrnam(group) != IntPtr.Zero);
 
     /// <summary>
     /// True if the user belongs to the group, either as its primary group or as a listed member.
