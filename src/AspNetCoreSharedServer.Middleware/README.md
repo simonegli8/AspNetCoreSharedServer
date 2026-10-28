@@ -1,15 +1,12 @@
 # AspNetCoreSharedServer.Middleware
-
 Middleware for ASP.NET Core applications that run behind
 [AspNetCoreSharedServer](https://github.com/simonegli8/AspNetCoreSharedServer).
 
 ## UseAspNetCoreSharedServer
-
 One method name, two places to call it: on the application (`app`) for HTTP/3, and on the web host (`builder.WebHost`) for the
 PROXY protocol. Both do nothing outside AspNetCoreSharedServer.
 
 ### HTTP/3 (`app.UseAspNetCoreSharedServer()`)
-
 AspNetCoreSharedServer can forward HTTP/3 (QUIC over UDP) to your application. Clients learn that HTTP/3 is available from the
 `Alt-Svc` header of a normal HTTP/1.1 or HTTP/2 response. Kestrel only knows its own internal port, so on its own it would
 advertise a port that clients cannot reach. AspNetCoreSharedServer therefore passes the correct header value, for example
@@ -44,7 +41,6 @@ builder.WebHost.UseKestrel(options =>
 - The header is set with a plain assignment, so there is never a second `Alt-Svc` header.
 
 ### PROXY protocol (`builder.WebHost.UseAspNetCoreSharedServer()`)
-
 With `EnableProxyHeader` or `EnableProxyV2Header`, AspNetCoreSharedServer starts every TCP connection to your application with a
 PROXY header, so that the application can see the real address of the client, and sets the environment variable
 `PROXY_PROTOCOL` to `v1` or `v2`. When that variable is set, `UseAspNetCoreSharedServer` on the web host turns on

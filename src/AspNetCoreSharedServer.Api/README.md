@@ -108,7 +108,6 @@ from Apache or Nginx. The original Urls that Apache or Nginx serve will be passe
 ORIGINAL_URLS from the Urls parameter in configuration.json.
 
 ### HTTP/3
-
 For an application with an `https` URL in `ListenUrls`, AspNetCoreSharedServer also listens on the same port for UDP and forwards
 HTTP/3 (QUIC) to the application. The application has to do two things:
 
@@ -148,6 +147,33 @@ Things to know:
   session only starts with a datagram of at least 1200 bytes, the size of a QUIC client's first packet.
 - Set `"EnableHttp3": false` in `configuration.json`, or for a single application, to switch HTTP/3 off.
 
+### PROXY protocol
+With `EnableProxyHeader` or `EnableProxyV2Header`, AspNetCoreSharedServer starts every TCP connection to the application with a
+PROXY header that carries the real address of the client. Kestrel does not read that header by itself, so the application has to
+be told to. Add the NuGet package `AspNetCoreSharedServer.Middleware` and call `UseAspNetCoreSharedServer` on the web host, **before**
+the Kestrel endpoints are created:
+
+```csharp
+var builder = WebApplication.CreateBuilder(args);
+
+builder.WebHost.UseAspNetCoreSharedServer();   // reads the PROXY header; must come before UseKestrel / ConfigureKestrel
+builder.WebHost.UseKestrel(options => { ... });
+
+var app = builder.Build();
+app.UseAspNetCoreSharedServer();               // sends the Alt-Svc header, see HTTP/3 above
+```
+
+- Without this call Kestrel does not understand the header: the application then sees the connection as invalid, and
+  `HttpContext.Connection.RemoteIpAddress` is not the client.
+- The call does nothing unless the server sets the environment variable `PROXY_PROTOCOL` (`v1` or `v2`), so it is safe to leave in
+  when the application also runs without AspNetCoreSharedServer or without a PROXY header.
+- It turns on [Scintillating.ProxyProtocol.Middleware](https://www.nuget.org/packages/Scintillating.ProxyProtocol.Middleware) (a
+  dependency of the package, .NET 8 or newer) for every Kestrel endpoint, and it also works together with `UseHttps`.
+- When `PROXY_PROTOCOL` is set, every connection must carry the header. That is always the case behind AspNetCoreSharedServer, but
+  it means the same port cannot also serve direct connections.
+- HTTP/3 is switched off for an application that gets a PROXY header, because the PROXY protocol only exists for TCP.
+
+# API Library
 You can also manage the configuration.json file programmatically by using AspNetCoreSharedServer.Api:
 Import AspNetCoreSharedServer.Api via nuget to your project.
 
