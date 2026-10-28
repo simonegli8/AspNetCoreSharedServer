@@ -69,6 +69,8 @@ name in `/etc/aspnet-server`. When the configuration is changed, changes are app
 - `IdleTimeout` is the time in seconds or JSON time value after which an application will be stopped when it is idle.
 - `Recycle` is the time in seconds or JSON time value after which the application will be restarted, regardless of activity.
 - `Environment` is a dictionary of environment variables that will be set for the application when it is started.
+  The server also sets `ASPNET_SERVER` to its own version (the one `aspnet-server -v` prints, for example `4.0.1`), so that an
+  application can tell that it runs behind AspNetCoreSharedServer and which version. It cannot be overridden here.
 - `Offline` if set to true, the application or the server will be disabled and set offline.
 - `Syslog` optional Syslog configuration.
 - `FailureLimit` number of failures within `FailureInterval` in order to disable app pool.

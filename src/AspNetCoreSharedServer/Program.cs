@@ -13,8 +13,7 @@ public class Program
 {
     public static void PrintVersion()
     {
-        var assembly = Assembly.GetExecutingAssembly();
-        Console.WriteLine($"aspnet-server {assembly.GetName()?.Version?.ToString(3) ?? "1.0.0"}");
+        Console.WriteLine($"aspnet-server {Server.Version}");
     }
 
     static AsyncMutexLock applockmutex = new AsyncMutexLock("AspNetCoreSharedServer.AssertOnlyOneInstance", MutexScope.Machine);

@@ -4,7 +4,7 @@ namespace AspNetCoreSharedServer.Tests;
 
 /// <summary>
 /// The environment variables that the server gives an app: its own configuration, and the ones the server defines (the urls, the HTTP/3
-/// variables and PROXY_PROTOCOL), which an app cannot override.
+/// variables, PROXY_PROTOCOL and ASPNET_SERVER), which an app cannot override.
 /// </summary>
 public class AppEnvironmentTests
 {
@@ -107,6 +107,26 @@ public class AppEnvironmentTests
         Assert.Equal("", environment["ORIGINAL_URLS"]);
     }
 
+    // --- the version of the server ---
+
+    [Fact]
+    public void Tells_the_app_which_version_of_the_server_it_runs_behind()
+    {
+        var environment = Create();
+
+        Assert.Equal("ASPNET_SERVER", Server.ServerVariable);
+        Assert.Equal(Server.Version, environment["ASPNET_SERVER"]);
+        Assert.Matches(@"^\d+\.\d+\.\d+$", environment["ASPNET_SERVER"]); // major.minor.build, like aspnet-server -v
+    }
+
+    [Fact]
+    public void An_app_cannot_claim_another_version_of_the_server()
+    {
+        var environment = Create(new Dictionary<string, string> { ["ASPNET_SERVER"] = "99.0.0" });
+
+        Assert.Equal(Server.Version, environment["ASPNET_SERVER"]);
+    }
+
     // --- on the way to the app ---
 
     [Fact]
@@ -119,6 +139,14 @@ public class AppEnvironmentTests
         var arguments = HelperProcess.Arguments(Server.CreateSudoArguments("www-data", null, environment, "/bin/true"));
 
         Assert.Contains("PROXY_PROTOCOL=v2", arguments);
+    }
+
+    [Fact]
+    public void ASPNET_SERVER_reaches_the_app_on_the_sudo_command_line()
+    {
+        var arguments = HelperProcess.Arguments(Server.CreateSudoArguments("www-data", null, Create(), "/bin/true"));
+
+        Assert.Contains("ASPNET_SERVER=" + Server.Version, arguments);
     }
 
     [Fact]

@@ -221,6 +221,12 @@ public class Server
     public const string AltSvcVariable = "HTTP3_ALT_SVC_HEADER";
     /// <summary>Environment variable that is "true" when HTTP/3 is forwarded to the app, otherwise "false".</summary>
     public const string Http3EnabledVariable = "HTTP3_ENABLED";
+
+    /// <summary>The environment variable in which the server tells an app that it runs behind AspNetCoreSharedServer, and which version.</summary>
+    public const string ServerVariable = "ASPNET_SERVER";
+
+    /// <summary>The version of AspNetCoreSharedServer, as <c>major.minor.build</c> like <c>aspnet-server -v</c> prints it.</summary>
+    public static string Version { get; } = typeof(Server).Assembly.GetName().Version?.ToString(3) ?? "1.0.0";
     const int AltSvcMaxAgeSeconds = 86400;
 
     /// <summary>
@@ -252,6 +258,7 @@ public class Server
         }
         variables["ORIGINAL_URLS"] = originalUrls ?? "";
         variables["ASPNETCORE_URLS"] = urls;
+        variables[ServerVariable] = Version;
         variables[AltSvcVariable] = altSvc;
         variables[Http3EnabledVariable] = altSvc.Length > 0 ? "true" : "false";
         variables.Remove(ProxyProtocolVariable);

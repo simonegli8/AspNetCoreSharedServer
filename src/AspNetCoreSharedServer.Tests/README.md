@@ -13,7 +13,7 @@ dotnet test src/AspNetCoreSharedServer.Tests
 | `TcpRelayTests` | The TCP copy between client and app: half-close, reset, the idle bound after a half-close, cancellation. |
 | `ProxyHeaderTests` | PROXY protocol v1/v2 headers: the destination is the address and port the client connected to. |
 | `AltSvcTests` | The `HTTP3_ALT_SVC_HEADER` / `HTTP3_ENABLED` values and how they reach the app (environment and sudo command line quoting). |
-| `AppEnvironmentTests` | The environment of an app: its own variables, the ones the server defines and an app cannot override, and `PROXY_PROTOCOL` (`v1`/`v2`, only when a PROXY header is sent), including how it travels on the sudo command line. |
+| `AppEnvironmentTests` | The environment of an app: its own variables, the ones the server defines and an app cannot override, `ASPNET_SERVER` (the version of the server) and `PROXY_PROTOCOL` (`v1`/`v2`, only when a PROXY header is sent), including how it travels on the sudo command line. |
 | `ProxyHttp3MiddlewareTests` / `ProxyProtocolMiddlewareTests` | `UseAspNetCoreSharedServer` of the Middleware package: the `Alt-Svc` header, and a real Kestrel that reads v1 and v2 PROXY headers only when `PROXY_PROTOCOL` is set. |
 | `PortAndProxyTests` | A port that is free for TCP and UDP, and HTTP/3 being switched off when a PROXY header is enabled. |
 | `UnixTests` / `MacOsUnixTests` | `Unix.IsUserInGroup`, which decides which groups an app owner may use, and `UserExists`/`GroupExists`. `UnixTests` reads /etc/passwd and runs on Linux only; `MacOsUnixTests` uses accounts every Mac has and runs on macOS only. |
