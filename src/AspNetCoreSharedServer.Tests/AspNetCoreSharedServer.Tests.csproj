@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <IsPackable>false</IsPackable>
+        <IsTestProject>true</IsTestProject>
+        <!-- The test assembly has its own Main, see TestProgram.cs. -->
+        <GenerateProgramFile>false</GenerateProgramFile>
+        <RestoreSources>$(RestoreSources);..\..\nupkg;https://api.nuget.org/v3/index.json</RestoreSources>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+        <PackageReference Include="xunit" Version="2.9.3" />
+        <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+        <PackageReference Include="Xunit.SkippableFact" Version="1.5.23" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\AspNetCoreSharedServer\AspNetCoreSharedServer.csproj" />
+        <!-- Only built, not referenced: the end-to-end tests run it as an application behind the server. -->
+        <ProjectReference Include="..\AspNetCoreTestApp\AspNetCoreTestApp.csproj" ReferenceOutputAssembly="false" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <!-- Where the end-to-end tests find the server and the test app (see TestPaths.cs). -->
+        <AssemblyMetadata Include="ServerDll" Value="$(MSBuildThisFileDirectory)..\AspNetCoreSharedServer\bin\$(Configuration)\net10.0\AspNetCoreSharedServer.dll" />
+        <AssemblyMetadata Include="TestAppDll" Value="$(MSBuildThisFileDirectory)..\AspNetCoreTestApp\bin\$(Configuration)\net10.0\AspNetCoreTestApp.dll" />
+    </ItemGroup>
+
+</Project>

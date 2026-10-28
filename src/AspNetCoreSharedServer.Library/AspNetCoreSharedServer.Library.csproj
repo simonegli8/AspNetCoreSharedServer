@@ -47,6 +47,9 @@
         <Compile Include="../AspNetCoreSharedServer/Proxy.cs">
             <Link>Proxy.cs</Link>
         </Compile>
+        <Compile Include="../AspNetCoreSharedServer/UdpRelay.cs">
+            <Link>UdpRelay.cs</Link>
+        </Compile>
         <Compile Include="../AspNetCoreSharedServer/Server.cs">
             <Link>Server.cs</Link>
         </Compile>

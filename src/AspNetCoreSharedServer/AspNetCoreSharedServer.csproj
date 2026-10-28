@@ -66,4 +66,8 @@
         <PackageReference Include="SyslogNet.ClientStandard" Version="0.3.4" />
         <PackageReference Include="Hardware.Info" Version="110.0.0.1" />
     </ItemGroup>
+
+    <ItemGroup>
+        <InternalsVisibleTo Include="AspNetCoreSharedServer.Tests" />
+    </ItemGroup>
 </Project>

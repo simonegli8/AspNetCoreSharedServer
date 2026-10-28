@@ -55,9 +55,13 @@ public class Proxy
 
     public List<TcpListener> Http = new List<TcpListener>(), Https = new List<TcpListener>(),
         NetTcp = new List<TcpListener>();
-    public UdpClient? QuicHttpV4 = null, QuicHttpsV4 = null, QuicHttpV6 = null, QuicHttpsV6 = null;
+    UdpRelay? relay = null;
+    /// <summary>True while HTTP/3 (QUIC over UDP on the HTTPS port) is being forwarded to the app.</summary>
+    public bool Http3Active => relay != null;
     Uri? httpUri = null, httpsUri = null, nettcpUri = null;
     int httpPort = -1, httpsPort = -1, nettcpPort = -1;
+    /// <summary>The HTTPS port this proxy listens on (not the port of the app behind it). -1 if there is none yet.</summary>
+    public int PublicHttpsPort => httpsPort;
 
     public Proxy(Application app)
     {
@@ -71,6 +75,13 @@ public class Proxy
         IdleTimeout = app.IdleTimeout ?? Configuration.Current.IdleTimeout ?? Configuration.GlobalIdleTimeout;
         Recycle = app.Recycle ?? Configuration.Current.Recycle ?? Configuration.GlobalRecycle;
         EnableHttp3 = app.EnableHttp3 ?? EnableHttp3;
+        if (EnableHttp3 && (app.EnableProxyHeader == true || app.EnableProxyV2Header == true))
+        {
+            // The PROXY protocol only exists for TCP. Over HTTP/3 the app would see 127.0.0.1 as the client,
+            // while over HTTP/1.1 and HTTP/2 it sees the real address, so HTTP/3 is not forwarded for such apps.
+            EnableHttp3 = false;
+            Logger?.LogWarning($"{app.Name}: HTTP/3 is disabled because the PROXY protocol header is enabled (it cannot be sent over UDP).");
+        }
     }
     public bool HasIPv6 = false;
     public bool HasIPv4 = false;
@@ -97,7 +108,7 @@ public class Proxy
                 HasNetTcp = true;
                 nettcpUri = uri;
             }
-            else throw new ArgumentException("Invalid URL scheme. Only 'http' and 'https' are supported.", nameof(url));
+            else throw new ArgumentException("Invalid URL scheme. Only 'http', 'https' and 'net.tcp' are supported.", nameof(url));
         }
         if (HasHttp)
         {
@@ -132,7 +143,7 @@ public class Proxy
             if (nettcpUri.Port == 0)
             {
                 nettcpPort = await Configuration.FindFreePortAsync();
-                actualurls.Add($"nettcp://{nettcpUri.Host}:{nettcpPort}");
+                actualurls.Add($"net.tcp://{nettcpUri.Host}:{nettcpPort}");
             }
             else
             {
@@ -152,7 +163,7 @@ public class Proxy
         {
             do
             {
-                Task? t1 = null, t2 = null, t3 = null, t4 = null, t5 = null, t6 = null;
+                Task? t1 = null, t2 = null, t3 = null, t4 = null;
                 if (HasHttp)
                 {
                     IPAddress? ip;
@@ -216,28 +227,29 @@ public class Proxy
                     NetTcp.Clear();
                     foreach (var ipadr in ips) NetTcp.Add(new TcpListener(ipadr, nettcpPort));
 
-                    t1 = ListenAsync(NetTcp, (addressFamily, server) => server.NetTcpDest(addressFamily));
+                    t3 = ListenAsync(NetTcp, (addressFamily, server) => server.NetTcpDest(addressFamily));
                 }
 
-                if (EnableHttp3)
+                // HTTP/3 is QUIC over UDP on the same port as HTTPS, and needs TLS, so only the HTTPS port is relayed.
+                if (EnableHttp3 && HasHttps && httpsPort > 0)
                 {
-                    if (httpPort > -1)
+                    try
                     {
-                        if (HasIPv4) QuicHttpV4 = new UdpClient(httpPort, AddressFamily.InterNetwork);
-                        if (HasIPv6) QuicHttpV6 = new UdpClient(httpPort, AddressFamily.InterNetworkV6);
+                        relay?.Dispose();
+                        var endpoints = Https.Select(listener => (IPEndPoint)listener.LocalEndpoint).ToList();
+                        var newRelay = new UdpRelay(endpoints, () => Server?.GetUdpBackend(), Logger);
+                        relay = newRelay;
+                        t4 = newRelay.RunAsync(Cancel.Token);
+                        Logger.LogInformation($"{Application.Name} forwarding HTTP/3 on UDP port {httpsPort}");
                     }
-                    if (httpsPort > -1)
+                    catch (SocketException ex)
                     {
-                        if (HasIPv4) QuicHttpsV4 = new UdpClient(httpsPort, AddressFamily.InterNetwork);
-                        if (HasIPv6) QuicHttpsV6 = new UdpClient(httpsPort, AddressFamily.InterNetworkV6);
+                        // Without UDP the app still works over TCP, so this only turns HTTP/3 off.
+                        relay = null;
+                        Logger.LogWarning(ex, $"{Application.Name}: HTTP/3 is not available, cannot listen on UDP port {httpsPort}: {ex.Message}");
                     }
-
-                    if (QuicHttpV4 != null) t3 = ListenAsync(QuicHttpV4, server => server.QuicHttpDestV4);
-                    if (QuicHttpsV4 != null) t4 = ListenAsync(QuicHttpsV4, server => server.QuicHttpsDestV4);
-                    if (QuicHttpV6 != null) t3 = ListenAsync(QuicHttpV6, server => server.QuicHttpDestV6);
-                    if (QuicHttpsV6 != null) t4 = ListenAsync(QuicHttpsV6, server => server.QuicHttpsDestV6);
                 }
-                var tasks = new Task?[] { t1, t2, t3, t4, t5, t6 }
+                var tasks = new Task?[] { t1, t2, t3, t4 }
                     .Where(t => t != null)
                     .Select(t => t!)
                     .ToArray();
@@ -271,14 +283,12 @@ public class Proxy
         }
     }
 
-    public async Task DetachAsync()
+    public async Task DetachAsync(Server server)
     {
         using var mylock = await Lock.LockAsync();
-        if (Server != null)
-        {
-            Server.UdpCancel.Cancel();
-            Server = null;
-        }
+        server.UdpCancel.Cancel();
+        // Only clear the reference if it still points to the detaching server; a newer server may have replaced it.
+        if (Server == server) Server = null;
     }
 
     public async Task ShutdownAsync(bool waitOnServerShutdown = true)
@@ -298,25 +308,40 @@ public class Proxy
         throw new NotSupportedException();
     }
 
-    public async Task<Server> StartServerAsync()
+    /// <summary>Returns the running server, starting one if needed. Returns null if the app could not be started.</summary>
+    public async Task<Server?> StartServerAsync()
     {
         using var mylock = await Lock.LockAsync();
         if (!Cancel.IsCancellationRequested)
         {
             if (Server == null)
             {
-                Server = new Server(this);
-                await Server.StartAsync();
+                var server = new Server(this);
+                Server = server;
+                bool started = false;
+                try
+                {
+                    started = await server.StartAsync();
+                }
+                finally
+                {
+                    // Never leave a server registered that has no running process (also covers exceptions from Process.Start).
+                    if (!started)
+                    {
+                        if (Server == server) Server = null;
+                        server.Release();
+                    }
+                }
                 //Debug.WriteLine($"Started server {Server.ProcessId} for {Application.Name}");
             }
         }
         return Server;
     }
-    public async Task ListenAsync(List<TcpListener> sources, Func<AddressFamily, Server, Task<TcpClient>> destination)
+    public async Task ListenAsync(List<TcpListener> sources, Func<AddressFamily, Server, Task<TcpClient?>> destination)
     {
         await Task.WhenAll(sources.Select(source => ListenAsync(source, destination)));
     }
-    public async Task ListenAsync(TcpListener source, Func<AddressFamily, Server, Task<TcpClient>> destination)
+    public async Task ListenAsync(TcpListener source, Func<AddressFamily, Server, Task<TcpClient?>> destination)
     {
         try
         {
@@ -336,11 +361,7 @@ public class Proxy
                 var client = await source.AcceptTcpClientAsync(Cancel.Token);
                 if (!Cancel.IsCancellationRequested)
                 {
-                    var server = await StartServerAsync();
-                    if (server != null && !Cancel.IsCancellationRequested && !server.TcpCancel.IsCancellationRequested)
-                    {
-                        _ = server.CopyAsync(client, await destination(client.Client.AddressFamily, server), server.TcpCancel);
-                    }
+                    _ = HandleClientAsync(client, destination);
                 }
             }
             catch (OperationCanceledException)
@@ -356,52 +377,29 @@ public class Proxy
         source.Stop();
         //Logger.LogInformation($"{Application.Name}: Listening stopped.");
     }
-    public async Task ListenAsync(UdpClient source, Func<Server, UdpClient> getDestination)
+    private async Task HandleClientAsync(TcpClient client, Func<AddressFamily, Server, Task<TcpClient?>> destination)
     {
+        TcpClient? backend = null;
         try
         {
-            while (!Cancel.IsCancellationRequested)
-            {
-                try
-                {
-                    var packet = await source.ReceiveAsync(Cancel.Token);
-                    var server = await StartServerAsync();
-                    if (server != null)
-                    {
-                        using var destination = getDestination(server);
-                        using var cancel = CancellationTokenSource.CreateLinkedTokenSource(Cancel.Token, server.UdpCancel.Token);
-                        var receiver = Task.Run(async () =>
-                        {
-                            while (!cancel.IsCancellationRequested)
-                            {
-                                try
-                                {
-                                    var packet = await destination.ReceiveAsync(cancel.Token);
-                                    await source.SendAsync(new ReadOnlyMemory<byte>(packet.Buffer, 0, packet.Buffer.Length), cancel.Token);
-                                }
-                                catch { }
-                            }
-                        });
-                        await destination.SendAsync(new ReadOnlyMemory<byte>(packet.Buffer, 0, packet.Buffer.Length), cancel.Token);
-                        while (!cancel.IsCancellationRequested)
-                        {
-                            try
-                            {
-                                var packet2 = await source.ReceiveAsync(cancel.Token);
-                                await destination.SendAsync(new ReadOnlyMemory<byte>(packet2.Buffer, 0, packet2.Buffer.Length), cancel.Token);
-                            }
-                            catch { }
-                        }
-                        await receiver;
-                    }
-                }
-                catch { }
-            }
+            if (Cancel.IsCancellationRequested) return;
+            var server = await StartServerAsync();
+            if (server == null || Cancel.IsCancellationRequested || server.TcpCancel.IsCancellationRequested) return;
+
+            backend = await destination(client.Client.AddressFamily, server);
+            if (backend == null) return;
+
+            await server.CopyAsync(client, backend, server.TcpCancel);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, $"{Application.Name}: connection failed");
         }
         finally
         {
-            source.Close();
-            source.Dispose();
+            backend?.Dispose();
+            client.Dispose();
         }
     }
 }

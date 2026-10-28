@@ -9,5 +9,6 @@
   <Project Path="src/AspNetCoreSharedServer.Api/AspNetCoreSharedServer.Api.csproj" />
   <Project Path="src/AspNetCoreSharedServer.Library/AspNetCoreSharedServer.Library.csproj" />
   <Project Path="src/AspNetCoreSharedServer/AspNetCoreSharedServer.csproj" />
+  <Project Path="src/AspNetCoreSharedServer.Tests/AspNetCoreSharedServer.Tests.csproj" />
   <Project Path="src/AspNetCoreTestApp/AspNetCoreTestApp.csproj" />
 </Solution>

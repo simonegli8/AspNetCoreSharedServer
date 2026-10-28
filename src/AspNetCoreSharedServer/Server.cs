@@ -29,79 +29,57 @@ public class Server
     public CancellationTokenSource UdpCancel = new CancellationTokenSource();
 
     static AsyncLock UidLock = new AsyncLock();
-    public async Task<TcpClient> Connect(int port, AddressFamily family)
+    const int ConnectTimeoutMs = 30000;
+    /// <summary>
+    /// Connects to the app on loopback, retrying until the app accepts connections. Throws OperationCanceledException
+    /// when the timeout elapses or this server is cancelled (e.g. its process exited). Returns null if the port is not in use.
+    /// </summary>
+    public async Task<TcpClient?> Connect(int port, AddressFamily family)
     {
-        if (port > -1)
-        {
-            var client = new TcpClient(family);
-            var clientV6 = new TcpClient(AddressFamily.InterNetworkV6);
-            //clientDual.Client.DualMode = true;
-            
-            var cancel = new CancellationTokenSource();
-            cancel.CancelAfter(30000);
+        if (port <= -1) return null;
 
-            var loopback = family == AddressFamily.InterNetworkV6 ? IPAddress.IPv6Loopback : IPAddress.Loopback;
-            try
+        using var cancel = CancellationTokenSource.CreateLinkedTokenSource(TcpCancel.Token);
+        cancel.CancelAfter(ConnectTimeoutMs);
+
+        var endpoints = family == AddressFamily.InterNetworkV6 ?
+            new[] { new IPEndPoint(IPAddress.IPv6Loopback, port) } :
+            new[] { new IPEndPoint(IPAddress.Loopback, port), new IPEndPoint(IPAddress.IPv6Loopback, port) };
+
+        while (true)
+        {
+            foreach (var endpoint in endpoints)
             {
-                await client.ConnectAsync(new IPEndPoint(loopback, port), cancel.Token);
-            }
-            catch (Exception ex)
-            {
-                if (family == AddressFamily.InterNetwork)
-                {
-                    try
-                    {
-                        await clientV6.ConnectAsync(new IPEndPoint(IPAddress.IPv6Loopback, port), cancel.Token);
-                    }
-                    catch (Exception ex2)
-                    {
-                    }
-                }
-            }
-            while (!client.Connected && !clientV6.Connected)
-            {
-                await Task.Delay(10, cancel.Token);
+                // A socket cannot reliably be reused after a failed connect, so every attempt gets a fresh TcpClient.
+                var client = new TcpClient(endpoint.AddressFamily);
                 try
                 {
-                    await client.ConnectAsync(new IPEndPoint(loopback, port), cancel.Token);
+                    await client.ConnectAsync(endpoint, cancel.Token);
+                    return client;
                 }
                 catch (Exception ex)
                 {
-                    if (family == AddressFamily.InterNetwork)
-                    {
-                        try
-                        {
-                            await clientV6.ConnectAsync(new IPEndPoint(IPAddress.IPv6Loopback, port), cancel.Token);
-                        }
-                        catch (Exception ex2)
-                        {
-                        }
-                    }
+                    client.Dispose();
+                    if (ex is OperationCanceledException) throw;
                 }
             }
-            
-            if (!client.Connected && clientV6.Connected) client = clientV6;
-
-            return client;
+            await Task.Delay(10, cancel.Token);
         }
-        return null;
     }
-    public async Task<TcpClient> HttpDest(AddressFamily family)
+    public async Task<TcpClient?> HttpDest(AddressFamily family)
     {
         return await Connect(HttpPort, family);
     }
-    public async Task<TcpClient> HttpsDest(AddressFamily family)
+    public async Task<TcpClient?> HttpsDest(AddressFamily family)
     {
         return await Connect(HttpsPort, family);
     }
-    public async Task<TcpClient> NetTcpDest(AddressFamily family)
+    public async Task<TcpClient?> NetTcpDest(AddressFamily family)
     {
         return await Connect(NetTcpPort, family);
     }
     public int HttpPort = -1, HttpsPort = -1, NetTcpPort = -1;
-    public UdpClient? QuicHttpDestV4, QuicHttpsDestV4, QuicHttpDestV6, QuicHttpsDestV6;
-    public DateTime Started = DateTime.Now;
-    public long Ticks = DateTime.Now.ToBinary();
+    public DateTime Started = DateTime.UtcNow;
+    public long Ticks = DateTime.UtcNow.ToBinary();
     int KestrelRestarts = 0;
     const int MaxKestrelRestarts = 9; // Maximum number of times to restart Kestrel before giving up
     public DateTime LastWork => DateTime.FromBinary(Interlocked.Read(ref Ticks));
@@ -120,25 +98,19 @@ public class Server
         Proxy = proxy;
     }
 
-    public async Task StartAsync()
+    /// <summary>Starts the app process. Returns false if it could not be started.</summary>
+    public async Task<bool> StartAsync()
     {
-        if (Proxy.HasHttp) HttpPort = await Configuration.FindFreePortAsync(true);
-        if (Proxy.HasHttps) HttpsPort = await Configuration.FindFreePortAsync(true);
-        if (Proxy.HasNetTcp) NetTcpPort = await Configuration.FindFreePortAsync(true);
-
-        if (Proxy.EnableHttp3)
+        // Validate before allocating any ports or sockets.
+        if (!File.Exists(Application.Assembly))
         {
-            if (HttpPort > -1)
-            {
-                if (Proxy.HasIPv4) QuicHttpDestV4 = new UdpClient(new IPEndPoint(IPAddress.Loopback, HttpPort));
-                if (Proxy.HasIPv6) QuicHttpDestV6 = new UdpClient(new IPEndPoint(IPAddress.IPv6Loopback, HttpPort));
-            }
-            if (HttpsPort > -1)
-            {
-                if (Proxy.HasIPv4) QuicHttpsDestV4 = new UdpClient(new IPEndPoint(IPAddress.Loopback, HttpsPort));
-                if (Proxy.HasIPv6) QuicHttpsDestV6 = new UdpClient(new IPEndPoint(IPAddress.IPv6Loopback, HttpsPort));
-            }
+            return await FailStartAsync($"Assembly {Application.Assembly} not found.", "Assembly not found.");
         }
+
+        if (Proxy.HasHttp) HttpPort = await Configuration.FindFreePortAsync(true);
+        // With HTTP/3 the app's QUIC listener needs the same number as its HTTPS port, free on UDP as well.
+        if (Proxy.HasHttps) HttpsPort = await Configuration.FindFreePortAsync(true, alsoUdp: Proxy.Http3Active);
+        if (Proxy.HasNetTcp) NetTcpPort = await Configuration.FindFreePortAsync(true);
 
         var urls = new StringBuilder();
         if (Proxy.HasHttp) urls.Append($"http://{LoopbackTextV4}:{HttpPort};http://{LoopbackTextV6}:{HttpPort}");
@@ -156,13 +128,6 @@ public class Server
         var user = Application.User ?? Configuration.Current.User;
         var group = Application.Group ?? Configuration.Current.Group;
 
-        if (!File.Exists(Application.Assembly))
-        {
-            Logger.LogError($"Assembly {Application.Assembly} not found.");
-            await Application.SetStatusAsync(Status.Error, $"Assembly not found.", true);
-            return;
-        }
-
         info.WorkingDirectory = !string.IsNullOrEmpty(Application.WorkingDirectory) ?
             Application.WorkingDirectory :
             Application.Assembly.Contains(Path.DirectorySeparatorChar) ?
@@ -178,29 +143,47 @@ public class Server
             ?.Replace("${loopbackV4}", LoopbackTextV4)
             ?.Replace("${loopbackV6}", LoopbackTextV6);
         uint? uid = null, gid = null;
+        var altSvc = CreateAltSvcHeader(Proxy.Http3Active, Proxy.HasHttps, Proxy.PublicHttpsPort);
 
         if (!OSInfo.IsWindows && Unix.IsRoot &&
             !string.IsNullOrEmpty(user))
         {
             if (!OSInfo.IsMac)
             {
-                string groupArg = "";
-                if (!string.IsNullOrEmpty(group)) groupArg = $"-g {group} ";
-                // If running as root, use sudo to drop privileges
-                var env = $"ASPNETCORE_URLS={urls} ORIGINAL_URLS={Application.Urls ?? ""} ";
+                // If running as root, use sudo to drop privileges.
+                // Every value placed before "--" is quoted, so that it cannot add sudo options or change the command.
+                var sudoArgs = new List<string> { "-u", QuoteArg(user) };
+                if (!string.IsNullOrEmpty(group))
+                {
+                    sudoArgs.Add("-g");
+                    sudoArgs.Add(QuoteArg(group));
+                }
+                // sudo resets the environment, so pass the app's environment variables on its command line.
+                foreach (var variable in Application.Environment ?? new Dictionary<string, string>())
+                {
+                    if (variable.Key is "ASPNETCORE_URLS" or "ORIGINAL_URLS" or AltSvcVariable or Http3EnabledVariable) continue;
+                    if (!System.Text.RegularExpressions.Regex.IsMatch(variable.Key, "^[A-Za-z_][A-Za-z0-9_]*$"))
+                    {
+                        Logger.LogWarning($"{Application.Name}: ignoring environment variable with invalid name '{variable.Key}'.");
+                        continue;
+                    }
+                    sudoArgs.Add(QuoteArg($"{variable.Key}={variable.Value ?? ""}"));
+                }
+                sudoArgs.Add(QuoteArg($"ASPNETCORE_URLS={urls}"));
+                sudoArgs.Add(QuoteArg($"ORIGINAL_URLS={Application.Urls ?? ""}"));
+                sudoArgs.Add(QuoteArg($"{AltSvcVariable}={altSvc}"));
+                sudoArgs.Add(QuoteArg($"{Http3EnabledVariable}={(altSvc.Length > 0 ? "true" : "false")}"));
                 info.FileName = "sudo";
                 var dotnetwithpath = Find("dotnet") ?? "dotnet";
-                info.Arguments = $"-u {user} {groupArg}{env}-- {(dotnet ? $"\"{dotnetwithpath}\" " : "")}\"{Application.Assembly}\"{(string.IsNullOrEmpty(arguments) ? "" : " " + arguments)}";
+                info.Arguments = $"{string.Join(" ", sudoArgs)} -- {(dotnet ? QuoteArg(dotnetwithpath) + " " : "")}{QuoteArg(Application.Assembly)}{(string.IsNullOrEmpty(arguments) ? "" : " " + arguments)}";
             }
             else
             {
                 var userrec = Unix.getpwnam(user);
                 var grouprec = !string.IsNullOrEmpty(group) ? Unix.getgrnam(group) : IntPtr.Zero;
-                if (userrec == null)
+                if (userrec == IntPtr.Zero)
                 {
-                    Logger.LogError($"User {user} not found.");
-                    await Application.SetStatusAsync(Status.Error, $"User {user} not found.", true);
-                    return;
+                    return await FailStartAsync($"User {user} not found.", $"User {user} not found.");
                 }
                 else
                 {
@@ -208,13 +191,11 @@ public class Server
                     uid = rec.pw_uid;
                     gid = rec.pw_gid;
                 }
-                if (!string.IsNullOrEmpty(group) && grouprec == null)
+                if (!string.IsNullOrEmpty(group) && grouprec == IntPtr.Zero)
                 {
-                    Logger.LogError($"Group {group} not found.");
-                    await Application.SetStatusAsync(Status.Error, $"Group {group} not found.", true);
-                    return;
+                    return await FailStartAsync($"Group {group} not found.", $"Group {group} not found.");
                 }
-                else if (grouprec != null)
+                else if (grouprec != IntPtr.Zero)
                 {
                     var rec = Marshal.PtrToStructure<Unix.Group>(grouprec);
                     gid = rec.gr_gid;
@@ -223,7 +204,7 @@ public class Server
                 if (dotnet)
                 {
                     info.FileName = Find("dotnet") ?? "dotnet";
-                    info.Arguments = $"\"{Application.Assembly}\"{(!string.IsNullOrEmpty(arguments) ? "" : " " + arguments)}";
+                    info.Arguments = $"\"{Application.Assembly}\"{(string.IsNullOrEmpty(arguments) ? "" : " " + arguments)}";
                 }
                 else
                 {  // Assembly is AOT
@@ -238,7 +219,7 @@ public class Server
             if (dotnet)
             {
                 info.FileName = Find("dotnet") ?? "dotnet";
-                info.Arguments = $"\"{Application.Assembly}\"{(!string.IsNullOrEmpty(arguments) ? "" : " " + arguments)}";
+                info.Arguments = $"\"{Application.Assembly}\"{(string.IsNullOrEmpty(arguments) ? "" : " " + arguments)}";
             }
             else
             {  // Assembly is AOT
@@ -254,6 +235,8 @@ public class Server
         }
         info.Environment["ORIGINAL_URLS"] = Application.Urls ?? "";
         info.Environment["ASPNETCORE_URLS"] = urls.ToString();
+        info.Environment[AltSvcVariable] = altSvc;
+        info.Environment[Http3EnabledVariable] = altSvc.Length > 0 ? "true" : "false";
         Logger.LogInformation($"Starting {Application.Name} on {urls}");
         info.RedirectStandardError = info.RedirectStandardOutput = true;
         info.RedirectStandardInput = true;
@@ -269,24 +252,42 @@ public class Server
 
         if (gid != null || uid != null)
         {
+            bool switchFailed = false, revertFailed = false;
             using (await UidLock.LockAsync())
             {
-                // Switch group first, then user
-                if (gid != null && Unix.setegid(gid.Value) != 0 || uid != null && Unix.seteuid(uid.Value) != 0)
+                try
                 {
-                    Logger.LogError("Failed to switch user/group (need to run as root).");
-                    await Application.SetStatusAsync(Status.Error, $"Failed to switch user/group (need to run as root).", true);
-                    return;
+                    // Switch group first, then user
+                    if (gid != null && Unix.setegid(gid.Value) != 0 || uid != null && Unix.seteuid(uid.Value) != 0)
+                    {
+                        switchFailed = true;
+                    }
+                    else
+                    {
+                        ServerProcess.Start();
+                    }
                 }
+                finally
+                {
+                    // Always revert to root: also when only one of the two switches succeeded, or Start threw.
+                    // User first, so that the group can be restored with root privileges.
+                    var userReverted = Unix.seteuid(0) == 0;
+                    var groupReverted = Unix.setegid(0) == 0;
+                    revertFailed = !userReverted || !groupReverted;
+                    if (revertFailed) Logger.LogError("Failed to switch back to root.");
+                }
+            }
 
-                ServerProcess.Start();
-                // Revert to root
-                if ((gid != null || uid != null) && (Unix.setegid(0) != 0 || Unix.seteuid(0) != 0))
-                {
-                    Logger.LogError("Failed to switch back to root.");
-                    await Application.SetStatusAsync(Status.Error, $"Failed to switch back to root.", true);
-                    return;
-                }
+            // Only now that root is restored can the status (config file) be written.
+            if (switchFailed)
+            {
+                return await FailStartAsync("Failed to switch user/group (need to run as root).",
+                    "Failed to switch user/group (need to run as root).");
+            }
+            if (revertFailed)
+            {
+                await Application.SetStatusAsync(Status.Error, $"Failed to switch back to root.", true);
+                return true; // The process was already started, so the server must stay registered.
             }
         }
         else
@@ -297,37 +298,130 @@ public class Server
         ServerProcess.BeginErrorReadLine();
         ServerProcess.BeginOutputReadLine();
 
-        Ticks = DateTime.Now.ToBinary();
+        Touch();
+        isRunning = true;
 
-        if (Proxy.Recycle != null || Proxy.IdleTimeout != null ||
-        Proxy.Recycle != TimeSpan.Zero || Proxy.IdleTimeout != TimeSpan.Zero)
+        if (Proxy.Recycle != null && Proxy.Recycle != TimeSpan.Zero || 
+            Proxy.IdleTimeout != null && Proxy.IdleTimeout != TimeSpan.Zero ||
+            Configuration.Current.IdleTimeoutOnLowMemory != TimeSpan.Zero)
             _ = Task.Run(async () => await CheckTimeoutAsync());
 
         await CheckStartedAsync();
+        // CheckStartedAsync clears Proxy.Server if the process exited right away.
+        return Proxy.Server == this;
+    }
+
+    /// <summary>Environment variable holding the ready-made Alt-Svc header value for the app to send. Empty if HTTP/3 is not forwarded.</summary>
+    public const string AltSvcVariable = "ALT_SVC_HEADER";
+    /// <summary>Environment variable that is "true" when HTTP/3 is forwarded to the app, otherwise "false".</summary>
+    public const string Http3EnabledVariable = "HTTP3_ENABLED";
+    const int AltSvcMaxAgeSeconds = 86400;
+
+    /// <summary>
+    /// The Alt-Svc header value that advertises HTTP/3 on the proxy's public HTTPS port, or an empty string when HTTP/3 is not forwarded.
+    /// Kestrel only knows its own internal port and would advertise that one, which clients cannot reach, so the app has to send this
+    /// value itself.
+    /// </summary>
+    public static string CreateAltSvcHeader(bool http3Enabled, bool hasHttps, int publicHttpsPort) =>
+        http3Enabled && hasHttps && publicHttpsPort > 0 ? $"h3=\":{publicHttpsPort}\"; ma={AltSvcMaxAgeSeconds}" : "";
+
+    /// <summary>Quotes a single argument for a ProcessStartInfo.Arguments string, so it is parsed back as exactly one argument.</summary>
+    internal static string QuoteArg(string value)
+    {
+        var sb = new StringBuilder("\"");
+        int backslashes = 0;
+        foreach (var c in value)
+        {
+            if (c == '\\')
+            {
+                backslashes++;
+                continue;
+            }
+            if (c == '"') sb.Append('\\', backslashes * 2 + 1).Append('"');
+            else sb.Append('\\', backslashes).Append(c);
+            backslashes = 0;
+        }
+        return sb.Append('\\', backslashes * 2).Append('"').ToString();
+    }
+
+    /// <summary>
+    /// Aborts a start that never launched a process: clears the proxy's reference, releases the sockets
+    /// and marks the app as failed. Must be called while the proxy lock is held (as StartAsync is).
+    /// </summary>
+    async Task<bool> FailStartAsync(string logMessage, string status)
+    {
+        Logger.LogError(logMessage);
+        if (Proxy.Server == this) Proxy.Server = null;
+        Release();
+        await Application.SetStatusAsync(Status.Error, status, true);
+        return false;
+    }
+
+    /// <summary>Cancels this server's TCP copies and UDP sessions. Safe to call more than once.</summary>
+    public void Release()
+    {
+        TcpCancel.Cancel();
+        UdpCancel.Cancel();
+    }
+
+    /// <summary>Records that traffic flowed, so that the app does not count as idle.</summary>
+    public void Touch() => Interlocked.Exchange(ref Ticks, DateTime.UtcNow.ToBinary());
+
+    /// <summary>Set once the app's process has been started.</summary>
+    volatile bool isRunning;
+    UdpBackend? udpBackend;
+
+    /// <summary>
+    /// Where HTTP/3 datagrams for this app go: its loopback HTTPS port. Null while the app is not running (or has no HTTPS
+    /// listener), because a UDP datagram must never be the reason that an app is started.
+    /// </summary>
+    public UdpBackend? GetUdpBackend()
+    {
+        if (!isRunning || HttpsPort <= 0 || UdpCancel.IsCancellationRequested) return null;
+        return udpBackend ??= new UdpBackend(HttpsPort, UdpCancel.Token, Touch);
     }
 
     private async Task OnExitAsync()
     {
-        bool fail = false;
-
-        await Proxy.DetachAsync();
-        
-        TcpCancel.Cancel();
-        if (!shuttingDown)
+        try
         {
-            fail = await Proxy.FailAsync();
+            bool fail = false;
+
+            try
+            {
+                await Proxy.DetachAsync(this);
+            }
+            finally
+            {
+                TcpCancel.Cancel();
+            }
+            if (!shuttingDown)
+            {
+                fail = await Proxy.FailAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed OnExit");
         }
     }
 
     public async Task OnOutputAsync(string? data, TextWriter writer)
     {
-        if (data != null)
+        try
         {
-            if (data.Contains(ShutdownMessage))
+            if (data != null)
             {
-                await Proxy.DetachAsync();
+                if (data.Contains(ShutdownMessage))
+                {
+                    await Proxy.DetachAsync(this);
+                }
+                writer.WriteLine(data);
             }
-            writer.WriteLine(data);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed OnOutput");
         }
     }
 
@@ -335,7 +429,7 @@ public class Server
     {
         if (ServerProcess?.HasExited != false)
         {
-            Proxy.Server = null;
+            if (Proxy.Server == this) Proxy.Server = null;
             await Proxy.FailAsync();
             Logger.LogError($"{Application.Name}: Failed to start application.");
             await Application.SetStatusAsync(Status.Error, "Failed to start application.", true);
@@ -352,7 +446,7 @@ public class Server
 
             using (await Proxy.Lock.LockAsync())
             {
-                Proxy.Server = null; // Clear the server reference to prevent further processing
+                if (Proxy.Server == this) Proxy.Server = null; // Clear the server reference to prevent further processing
                 UdpCancel.Cancel();
             }
 
@@ -365,11 +459,11 @@ public class Server
             if (wait)
             {
                 var timeout = TimeSpan.FromMinutes(4);
-                var start = DateTime.Now;
+                var start = DateTime.UtcNow;
                 do
                 {
                     await Task.Delay(100);
-                } while (!ServerProcess.HasExited || DateTime.Now - start < timeout);
+                } while (!ServerProcess.HasExited && DateTime.UtcNow - start < timeout);
 
                 if (!ServerProcess.HasExited) ServerProcess.Kill();
 
@@ -380,56 +474,92 @@ public class Server
 
     public int ProcessId => ServerProcess?.Id ?? 0;
 
+    static readonly AsyncLock MemoryLock = new AsyncLock();
+    static HardwareInfo? sharedHardwareInfo = null;
+    static double cachedUsedMemory = 0;
+    static long cachedUsedMemoryAt = 0;
+    static bool hasCachedUsedMemory = false;
+    const int MemoryCacheMs = 1000;
+
+    /// <summary>
+    /// Fraction of physical memory in use. Shared by all servers and refreshed at most once per second, so that
+    /// the number of running apps does not multiply the cost of polling the hardware.
+    /// </summary>
+    static async Task<double> GetUsedMemoryAsync()
+    {
+        using (var @lock = await MemoryLock.LockAsync())
+        {
+            var now = Environment.TickCount64;
+            if (!hasCachedUsedMemory || now - cachedUsedMemoryAt >= MemoryCacheMs)
+            {
+                // Created on first use: constructing HardwareInfo is expensive, and must not run in a type initializer.
+                sharedHardwareInfo ??= new HardwareInfo();
+                sharedHardwareInfo.RefreshMemoryStatus();
+
+                ulong total = sharedHardwareInfo.MemoryStatus.TotalPhysical;
+                ulong available = sharedHardwareInfo.MemoryStatus.AvailablePhysical;
+                // Unknown total: report no memory pressure, instead of NaN.
+                cachedUsedMemory = total == 0 ? 0 : (double)(total - available) / (double)total;
+                cachedUsedMemoryAt = now;
+                hasCachedUsedMemory = true;
+            }
+            return cachedUsedMemory;
+        }
+    }
+
     public async Task CheckTimeoutAsync()
     {
         do
         {
-            var now = DateTime.Now;
-            var hardwareInfo = new HardwareInfo();
-            hardwareInfo.RefreshMemoryStatus();
-
-            ulong total = hardwareInfo.MemoryStatus.TotalPhysical;
-            ulong available = hardwareInfo.MemoryStatus.AvailablePhysical;
-            var usedmem = (double)(total-available) / (double)total;
-
-            var lowmem = usedmem < Configuration.Current.MemoryLowThreshold;
-            var idleTimeout = lowmem ?
-                Proxy.IdleTimeout :
-                Configuration.Current.IdleTimeoutOnLowMemory ?? Configuration.DefaultIdleTimeoutOnLowMemory;
-
-            if ((Proxy.IdleTimeout != null && Proxy.IdleTimeout != TimeSpan.Zero || lowmem) &&
-                now - LastWork > idleTimeout ||
-                Proxy.Recycle != null && Proxy.Recycle != TimeSpan.Zero &&
-                now - Started > Proxy.Recycle)
+            try
             {
-                Logger.LogInformation($"Shutdown {Application.Name}.");
-                await ShutdownAsync(false, false);
-                if (Proxy.IdleTimeout == TimeSpan.Zero)
+                var now = DateTime.UtcNow;
+                var usedmem = await GetUsedMemoryAsync();
+
+                var muchmem = usedmem < Configuration.Current.MemoryLowThreshold;
+                var idleTimeout = muchmem ?
+                    Proxy.IdleTimeout :
+                    Configuration.Current.IdleTimeoutOnLowMemory ?? Configuration.DefaultIdleTimeoutOnLowMemory;
+
+                if ((Proxy.IdleTimeout != null && Proxy.IdleTimeout != TimeSpan.Zero ||
+                    (!muchmem && idleTimeout != TimeSpan.Zero)) &&
+                    now - LastWork > idleTimeout ||
+                    Proxy.Recycle != null && Proxy.Recycle != TimeSpan.Zero &&
+                    now - Started > Proxy.Recycle)
                 {
-                    // Immediately restart when IdleTimeout is set to zero
-                    await Proxy.StartServerAsync();
+                    Logger.LogInformation($"Shutdown {Application.Name}.");
+                    await ShutdownAsync(false, false);
+                    if (Proxy.IdleTimeout == TimeSpan.Zero)
+                    {
+                        // Immediately restart when IdleTimeout is set to zero
+                        await Proxy.StartServerAsync();
+                    }
+                    return;
                 }
-                return;
+                else
+                {
+                    /*if (ServerProcess.HasExited)
+                    {
+                        using (await Proxy.Lock.LockAsync()) Proxy.Server = null;
+                        if (!shuttingDown && !await Proxy.FailAsync())
+                        {
+                            //await Proxy.StartServerAsync();
+                        }
+                    }*/
+                }
             }
-            else
+            catch (Exception ex)
             {
-                /*if (ServerProcess.HasExited)
-				{
-					using (await Proxy.Lock.LockAsync()) Proxy.Server = null;
-					if (!shuttingDown && !await Proxy.FailAsync())
-					{
-						//await Proxy.StartServerAsync();
-					}
-				}*/
+                Logger.LogError(ex, "Error in CheckTimeout");
             }
             await Task.Delay(1000);
         } while (!TcpCancel.IsCancellationRequested && !UdpCancel.IsCancellationRequested);
 
         /*if (Proxy.Cancel.IsCancellationRequested)
-		{
+        {
             Logger.LogInformation($"Shutdown {Application.Name}.");
             Shutdown();
-		}*/
+        }*/
     }
 
     private static readonly byte[] ProxyV2Signature =
@@ -508,97 +638,154 @@ public class Server
 
         return buffer;
     }
+    /// <summary>
+    /// Builds the PROXY protocol header for a connection accepted from a client. The header describes the client's
+    /// connection to the proxy: the client is the source, and the address and port the client connected to is the
+    /// destination. (Not the proxy's own socket to the app, which would be an ephemeral loopback port.)
+    /// </summary>
+    public static byte[] CreateProxyHeader(TcpClient source, bool v2)
+    {
+        var clientEp = (IPEndPoint)source.Client.RemoteEndPoint!;
+        var serverEp = (IPEndPoint)source.Client.LocalEndPoint!;
+        var clientAddress = NormalizeAddress(clientEp.Address);
+        var serverAddress = NormalizeAddress(serverEp.Address);
+
+        if (clientAddress.AddressFamily != serverAddress.AddressFamily)
+            throw new NotSupportedException("Proxy does not support IPv4 and IPv6 mix.");
+
+        if (v2) return CreateProxyV2Header(clientAddress, serverAddress, (ushort)clientEp.Port, (ushort)serverEp.Port, ProtocolType.Tcp);
+
+        // Standard PROXY v1 line: PROXY TCP4/6 [Source_IP] [Dest_IP] [Source_Port] [Dest_Port]\r\n
+        var version = clientAddress.AddressFamily == AddressFamily.InterNetworkV6 ? "TCP6" : "TCP4";
+        return Encoding.ASCII.GetBytes($"PROXY {version} {clientAddress} {serverAddress} {clientEp.Port} {serverEp.Port}\r\n");
+    }
+
+    /// <summary>Unwraps IPv4-mapped IPv6 addresses (dual-mode sockets) and drops IPv6 scope ids, which PROXY does not allow.</summary>
+    static IPAddress NormalizeAddress(IPAddress address)
+    {
+        if (address.IsIPv4MappedToIPv6) return address.MapToIPv4();
+        if (address.AddressFamily == AddressFamily.InterNetworkV6 && address.ScopeId != 0) return new IPAddress(address.GetAddressBytes());
+        return address;
+    }
+
     public async Task CopyAsync(TcpClient source, TcpClient destination, CancellationTokenSource cancel)
     {
         if (source == null || destination == null) return;
 
-        var cts = new CancellationTokenSource();
         using (var srcStream = source.GetStream())
         using (var destStream = destination.GetStream())
-        using (var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancel.Token, cts.Token))
         {
             // Send proxy header
             if (Application.EnableProxyHeader == true || Application.EnableProxyV2Header == true)
             {
-                var externalEp = (IPEndPoint)source.Client.RemoteEndPoint!;
-                var localEp = (IPEndPoint)destination.Client.LocalEndPoint!;
-                var localAddress = localEp.Address;
-                if (localAddress.IsIPv4MappedToIPv6) localAddress = localAddress.MapToIPv4();
-                else if (localAddress.Equals(IPAddress.IPv6Loopback) && externalEp.AddressFamily == AddressFamily.InterNetwork) localAddress = IPAddress.Loopback;
-
-                byte[] proxyHeader;
-                if (externalEp != null && localEp != null)
-                {
-                    if (externalEp.Address.AddressFamily != localAddress.AddressFamily)
-                        throw new NotSupportedException("Proxy does not support IPv4 and IPv6 mix.");
-
-                    if (Application.EnableProxyV2Header == true)
-                    {
-                        // Construct PROXY v2 header
-                        proxyHeader = CreateProxyV2Header(externalEp.Address, localAddress, (ushort)externalEp.Port, (ushort)localEp.Port, ProtocolType.Tcp);
-                    }
-                    else
-                    {
-                        // Construct standard PROXY v1 line: PROXY TCP4/6 [Source_IP] [Dest_IP] [Source_Port] [Dest_Port]\r\n
-                        var version = externalEp.Address.AddressFamily == AddressFamily.InterNetworkV6 ? "TCP6" : "TCP4";
-                        string proxyHeaderText = $"PROXY {version} {externalEp.Address} {localAddress} {externalEp.Port} {localEp.Port}\r\n";
-                        proxyHeader = Encoding.ASCII.GetBytes(proxyHeaderText);
-                    }
-                    // Inject the PROXY header
-                    await destStream.WriteAsync(proxyHeader, 0, proxyHeader.Length, linkedCts.Token);
-
-                    if (Application.EnableProxyV2Header == true)
-                    {
-                        Logger.LogInformation("Sent PROXY v2 header");
-                    } else
-                    {
-                        Logger.LogInformation("Sent PROXY v1 header");
-                    }
-                }
+                var v2 = Application.EnableProxyV2Header == true;
+                var proxyHeader = CreateProxyHeader(source, v2);
+                // Inject the PROXY header
+                await destStream.WriteAsync(proxyHeader, 0, proxyHeader.Length, cancel.Token);
+                Logger.LogInformation(v2 ? "Sent PROXY v2 header" : "Sent PROXY v1 header");
             }
-            
-            // Start bi‑directional copy tasks
-            var t1 = Pump(srcStream, destStream, linkedCts.Token); // client → server
-            var t2 = Pump(destStream, srcStream, linkedCts.Token); // server →  client
 
+            // Start bi‑directional copy tasks
             try
             {
-                await Task.WhenAny(t1, t2);
-                cts.Cancel();
-                await Task.WhenAll(t1, t2);
-            } catch (Exception ex)
+                await RelayAsync(srcStream, destStream, source.Client, destination.Client, cancel.Token, Touch);
+            }
+            catch (Exception ex)
             {
                 Logger?.LogWarning($"Exception when copying data {ex.Message}");
             }
         }
     }
 
-    static async Task Pump(NetworkStream src, NetworkStream dst, CancellationToken ct)
+    /// <summary>
+    /// How long a half-closed connection may stay silent in its remaining direction before it is torn down.
+    /// Without a bound, a peer that vanished after its half-close would hold the connection forever.
+    /// </summary>
+    public static TimeSpan HalfCloseIdleTimeout { get; set; } = TimeSpan.FromMinutes(5);
+
+    /// <summary>
+    /// Copies data in both directions between a client and the app. When one side finishes sending (EOF), that is passed
+    /// on as a half-close and the other direction keeps running until it finishes too, so a reply is never cut off
+    /// because the request was half-closed. A reset or cancellation tears down both directions at once.
+    /// </summary>
+    public static async Task RelayAsync(NetworkStream client, NetworkStream backend, Socket clientSocket, Socket backendSocket,
+        CancellationToken cancel, Action? onActivity = null)
     {
+        using var abort = CancellationTokenSource.CreateLinkedTokenSource(cancel);
+        long lastActivity = Environment.TickCount64;
+        void Activity()
+        {
+            Volatile.Write(ref lastActivity, Environment.TickCount64);
+            onActivity?.Invoke();
+        }
+
+        var pending = new List<Task<bool>>
+        {
+            Pump(client, backend, backendSocket, Activity, abort.Token), // client → server
+            Pump(backend, client, clientSocket, Activity, abort.Token),  // server → client
+        };
         try
         {
-            await src.CopyToAsync(dst, ct);
+            while (pending.Count > 0)
+            {
+                var finished = await Task.WhenAny(pending);
+                pending.Remove(finished);
+                if (!await finished)
+                {
+                    abort.Cancel(); // reset or cancelled: tear down the other direction as well
+                }
+                else if (pending.Count > 0)
+                {
+                    // One direction ended cleanly. Let the other finish, unless its peer stays silent too long.
+                    var rest = pending[0];
+                    while (!rest.IsCompleted && !abort.IsCancellationRequested)
+                    {
+                        using var wait = CancellationTokenSource.CreateLinkedTokenSource(abort.Token);
+                        await Task.WhenAny(rest, Task.Delay(HalfCloseIdleTimeout, wait.Token));
+                        wait.Cancel(); // release the delay timer
+                        var idle = TimeSpan.FromMilliseconds(Environment.TickCount64 - Volatile.Read(ref lastActivity));
+                        if (!rest.IsCompleted && idle >= HalfCloseIdleTimeout) abort.Cancel();
+                    }
+                }
+            }
         }
-        catch (OperationCanceledException) { /* expected on shutdown */ }
-        catch (IOException) { /* connection reset */ }
-    
-        /*var buffer = ArrayPool<byte>.Shared.Rent(BufferSize);
+        finally
+        {
+            abort.Cancel(); // never leave a pump running behind when leaving early
+        }
+    }
+
+    /// <returns>True if the sender finished cleanly (EOF, passed on as a half-close); false if the copy was reset or cancelled.</returns>
+    static async Task<bool> Pump(NetworkStream src, NetworkStream dst, Socket dstSocket, Action onData, CancellationToken ct)
+    {
+        var buffer = ArrayPool<byte>.Shared.Rent(BufferSize);
         try
         {
             while (!ct.IsCancellationRequested)
             {
                 int read = await src.ReadAsync(buffer, 0, buffer.Length, ct);
                 if (read == 0)
-                    break; // remote closed
+                {
+                    // The sender is done. Pass the FIN on, but keep the other direction open so the reply is not cut off.
+                    try { dstSocket.Shutdown(SocketShutdown.Send); }
+                    catch (SocketException) { } // the peer already closed
+                    catch (ObjectDisposedException) { }
+                    return true;
+                }
+
+                onData();
+
                 await dst.WriteAsync(buffer, 0, read, ct);
                 await dst.FlushAsync(ct);
             }
         }
-        catch (OperationCanceledException) {  }
+        catch (OperationCanceledException) { }
         catch (IOException) { }
+        catch (ObjectDisposedException) { }
         finally
         {
             ArrayPool<byte>.Shared.Return(buffer);
-        }*/
+        }
+        return false;
     }
 }

@@ -77,8 +77,12 @@ name in `/etc/aspnet-server`. When the configuration is changed, changes are app
 - `MemoryLowThreshold` a double value between 0 and 1 indicating the percentage of occupied memory when `IdleTimeout`
   should switch to the `IdleTimeoutOnLowMemory` value. So you can lower `IdleTimeout` when memory is low, so the server
   uses fewer RAM.
-- `UseProxyProtocol` and `UseProxyV2Protocol`: The server will send a PROXY V1/V2 header to Kestrel. Note that
-  Kestrel does not support this header natively, and you must use a middleware like `Scintillating.ProxyProtocol.Middleware`.
+- `EnableProxyHeader` and `EnableProxyV2Header` (per application, default off): The server will send a PROXY V1/V2 header to
+  Kestrel, so that the application can see the real address of the client. Note that Kestrel does not support this header
+  natively, and you must use a middleware like `Scintillating.ProxyProtocol.Middleware`.
+- `EnableHttp3` (global or per application, default `true`) forwards HTTP/3 (QUIC over UDP) for applications that have an
+  `https` URL in `ListenUrls`. See [HTTP/3](#http3). It is switched off automatically for an application that has
+  `EnableProxyHeader` or `EnableProxyV2Header` set.
 
 The individual applications can also be placed in separate json files, named after the applications name like so:
 ```
@@ -108,6 +112,40 @@ able to create applications, change access to  `/etc/aspnet-server` to user & gr
 After you have defined your applications in the configuration.json file, you can proxy to the sockets specified in ListenUrls 
 from Apache or Nginx. The original Urls that Apache or Nginx serve will be passed to Kestrel as a environment varibale
 ORIGINAL_URLS from the Urls parameter in configuration.json.
+
+### HTTP/3
+
+For an application with an `https` URL in `ListenUrls`, AspNetCoreSharedServer also listens on the same port for UDP and forwards
+HTTP/3 (QUIC) to the application. The application has to do two things:
+
+1. Kestrel must listen on the HTTPS port it is given in `ASPNETCORE_URLS` with `HttpProtocols.Http1AndHttp2AndHttp3`.
+2. The application must tell clients where to find HTTP/3. Kestrel only knows its own internal port, so on its own it would
+   advertise a port that clients cannot reach. AspNetCoreSharedServer therefore passes the correct `Alt-Svc` header value, for
+   example `h3=":443"; ma=86400`, in the environment variable `ALT_SVC_HEADER`. Send it with every response:
+
+   ```csharp
+   var altSvc = Environment.GetEnvironmentVariable("ALT_SVC_HEADER");
+   if (!string.IsNullOrEmpty(altSvc))
+   {
+       app.Use(async (context, next) =>
+       {
+           context.Response.Headers["Alt-Svc"] = altSvc;
+           await next();
+       });
+   }
+   ```
+
+   `ALT_SVC_HEADER` is empty, and `HTTP3_ENABLED` is `false`, when HTTP/3 is not forwarded for the application.
+
+Things to know:
+- A UDP datagram never starts an application. Without a running application HTTP/3 requests are dropped, and clients fall back to
+  TCP, which starts it.
+- HTTP/3 traffic counts as activity for `IdleTimeout`.
+- The PROXY protocol only exists for TCP. Over HTTP/3 the application would see `127.0.0.1` as the client, so HTTP/3 is switched
+  off for applications that have `EnableProxyHeader` or `EnableProxyV2Header` set.
+- Every client gets its own session, which ends after 60 seconds without traffic. At most 4096 sessions are kept, and a new
+  session only starts with a datagram of at least 1200 bytes, the size of a QUIC client's first packet.
+- Set `"EnableHttp3": false` in `configuration.json`, or for a single application, to switch HTTP/3 off.
 
 You can also manage the configuration.json file programmatically by using AspNetCoreSharedServer.Api:
 Import AspNetCoreSharedServer.Api via nuget to your project.

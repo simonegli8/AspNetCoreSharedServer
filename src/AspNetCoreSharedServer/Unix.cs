@@ -65,6 +65,32 @@ public class Unix
     [DllImport("libc")]
     public static extern IntPtr getgrnam(string name);
 
+    /// <summary>
+    /// True if the user belongs to the group, either as its primary group or as a listed member.
+    /// False if the user or group does not exist.
+    /// </summary>
+    public static bool IsUserInGroup(string user, string group)
+    {
+        var pwdPtr = getpwnam(user);
+        if (pwdPtr == IntPtr.Zero) return false;
+        // Read the passwd entry first: getpwnam and getgrnam return pointers to static buffers.
+        var primaryGid = Marshal.PtrToStructure<Passwd>(pwdPtr).pw_gid;
+
+        var grpPtr = getgrnam(group);
+        if (grpPtr == IntPtr.Zero) return false;
+        var grp = Marshal.PtrToStructure<Group>(grpPtr);
+        if (grp.gr_gid == primaryGid) return true;
+
+        // gr_mem is a NULL-terminated array of char* holding the names of the supplementary members.
+        if (grp.gr_mem == IntPtr.Zero) return false;
+        for (int i = 0; ; i++)
+        {
+            var namePtr = Marshal.ReadIntPtr(grp.gr_mem, i * IntPtr.Size);
+            if (namePtr == IntPtr.Zero) return false;
+            if (Marshal.PtrToStringAnsi(namePtr) == user) return true;
+        }
+    }
+
     public const int SIGINT = 2;
 
     [DllImport("libc", SetLastError = true)]

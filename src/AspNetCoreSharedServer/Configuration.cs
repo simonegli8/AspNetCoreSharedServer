@@ -50,8 +50,41 @@ public class Configuration
 
     }
     static int StartPort = 10000;
-    public static async Task<int> FindFreePortAsync(bool temporary = false)
+
+    /// <summary>True if the UDP port is free on IPv4 and, where the OS supports it, on IPv6.</summary>
+    static bool IsUdpPortFree(int port)
     {
+        foreach (var family in new[] { AddressFamily.InterNetwork, AddressFamily.InterNetworkV6 })
+        {
+            if (family == AddressFamily.InterNetworkV6 && !Socket.OSSupportsIPv6) continue;
+            try
+            {
+                using var probe = new Socket(family, SocketType.Dgram, ProtocolType.Udp);
+                probe.Bind(new IPEndPoint(family == AddressFamily.InterNetwork ? IPAddress.Any : IPAddress.IPv6Any, port));
+            }
+            catch (SocketException)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /// <param name="temporary">Pick any free port from the OS, without reserving it in the configuration.</param>
+    /// <param name="alsoUdp">The same port number must also be free for UDP. Kestrel uses one number for TCP and for QUIC (HTTP/3).</param>
+    public static async Task<int> FindFreePortAsync(bool temporary = false, bool alsoUdp = false)
+    {
+        if (temporary && alsoUdp)
+        {
+            for (int attempt = 0; attempt < 20; attempt++)
+            {
+                using var probe = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+                probe.Bind(new IPEndPoint(IPAddress.Any, 0));
+                var candidate = ((IPEndPoint)probe.LocalEndPoint!).Port;
+                if (IsUdpPortFree(candidate)) return candidate;
+            }
+            // No such port found: continue with a TCP-only port. The app then works, but without HTTP/3 for this run.
+        }
         const int EndPort = 49000;
         int port = 0;
         Socket socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
@@ -363,14 +396,26 @@ public class Configuration
                             {
                                 var fileMode = Unix.GetFilePermissions(file);
                                 var owner = Unix.GetOwnerAndGroup(file).Owner;
-                                if ((owner != (app.User ?? config.User) && owner != "root" ||
+                                var fileInsecure = (owner != (app.User ?? config.User) && owner != "root" ||
                                     fileMode.HasFlag(UnixFileMode.GroupWrite) ||
-                                    fileMode.HasFlag(UnixFileMode.OtherWrite)))
+                                    fileMode.HasFlag(UnixFileMode.OtherWrite));
+                                // Only root may give an app a group the app's user does not belong to.
+                                // A group copied from a root-owned configuration.json is trusted.
+                                if (!fileInsecure && owner != "root" &&
+                                    (app.Group != config.Group || Unix.GetOwnerAndGroup(ConfigPath).Owner != "root") &&
+                                    GroupError(app.Group, app.User ?? config.User) is { } groupError)
+                                {
+                                    app.Offline = true;
+                                    app.Status = Status.Error;
+                                    app.Error = groupError;
+                                    hasError = true;
+                                }
+                                if (fileInsecure)
                                 {
                                     // Retry loading app after one second, in case owner and mode of a freshly created file
                                     // has not yet been set. (The file might have been created by Api's Save method).
                                     /*if (!app.Offline && !app.IsReloading &&
-                                        (DateTime.Now - File.GetCreationTime(file) < TimeSpan.FromSeconds(5)))
+                                        (DateTime.UtcNow - File.GetCreationTimeUtc(file) < TimeSpan.FromSeconds(5)))
                                     {
                                         app.IsReloading = true;
                                         Task.Run(async () =>
@@ -534,15 +579,27 @@ public class Configuration
                             {
                                 var fileMode = Unix.GetFilePermissions(file);
                                 var owner = Unix.GetOwnerAndGroup(file).Owner;
-                                if ((owner != (app.User ?? config.User) &&
+                                var fileInsecure = (owner != (app.User ?? config.User) &&
                                     owner != "root" ||
                                     fileMode.HasFlag(UnixFileMode.GroupWrite) ||
-                                    fileMode.HasFlag(UnixFileMode.OtherWrite)))
+                                    fileMode.HasFlag(UnixFileMode.OtherWrite));
+                                // Only root may give an app a group the app's user does not belong to.
+                                // A group copied from a root-owned configuration.json is trusted.
+                                if (!fileInsecure && owner != "root" &&
+                                    (app.Group != config.Group || Unix.GetOwnerAndGroup(ConfigPath).Owner != "root") &&
+                                    GroupError(app.Group, app.User ?? config.User) is { } groupError)
+                                {
+                                    app.Offline = true;
+                                    app.Status = Status.Error;
+                                    app.Error = groupError;
+                                    hasError = true;
+                                }
+                                if (fileInsecure)
                                 {
                                     // Retry loading app after one second, in case owner and mode of a freshly created file
                                     // has not yet been set. (The file might have been created by Api's Save method).
                                     /*if (!app.Offline && !app.IsReloading &&
-                                        (DateTime.Now - File.GetCreationTime(file) < TimeSpan.FromSeconds(5)))
+                                        (DateTime.UtcNow - File.GetCreationTimeUtc(file) < TimeSpan.FromSeconds(5)))
                                     {
                                         app.IsReloading = true;
                                         Task.Run(async () =>
@@ -586,6 +643,19 @@ public class Configuration
             };
         }
         return config;
+    }
+
+    /// <summary>
+    /// Returns an error message if <paramref name="group"/> may not be used for an app run as <paramref name="user"/>.
+    /// The group is applied with sudo as root, so a file that is not owned by root may only name groups the user
+    /// belongs to; otherwise its owner could run their app with the privileges of any group (e.g. root or sudo).
+    /// </summary>
+    static string? GroupError(string? group, string? user)
+    {
+        // Without a user the app is not started under another account, so the group is not applied.
+        if (string.IsNullOrEmpty(group) || string.IsNullOrEmpty(user)) return null;
+        if (OSInfo.IsWindows || Unix.IsUserInGroup(user, group)) return null;
+        return $"Group '{group}' is not allowed: only a group that user '{user}' belongs to can be set here. Only root can set other groups.";
     }
 
     public bool IsAppChanged(Application app, Application oapp, bool oldOffline)
@@ -686,6 +756,10 @@ public class Configuration
                                 if ((app.User ?? config?.User) != owner.Owner)
                                 {
                                     await app.SetStatusAsync(Status.Error, $"Only {owner.Owner} allowed as User.", true, false);
+                                }
+                                else if (GroupError(app.Group ?? config?.Group, owner.Owner) is { } groupError)
+                                {
+                                    await app.SetStatusAsync(Status.Error, groupError, true, false);
                                 }
                             }
                         }
@@ -855,6 +929,10 @@ public class Configuration
                                 if ((app.User ?? config?.User) != owner.Owner)
                                 {
                                     app.SetStatus(Status.Error, $"Only {owner.Owner} allowed as User.", true, false);
+                                }
+                                else if (GroupError(app.Group ?? config?.Group, owner.Owner) is { } groupError)
+                                {
+                                    app.SetStatus(Status.Error, groupError, true, false);
                                 }
                             }
                         }
@@ -1659,7 +1737,7 @@ public class Application
                 app.Offline = true;
             }
             await config.SaveAsync(true, false);
-            if (disableChanged && load) _ = Task.Run(async () => Configuration.Current.LoadAsync(false));
+            if (disableChanged && load) _ = Task.Run(async () => await Configuration.Current.LoadAsync(false));
         }
     }
 

@@ -107,6 +107,40 @@ After you have defined your applications in the configuration.json file, you can
 from Apache or Nginx. The original Urls that Apache or Nginx serve will be passed to Kestrel as a environment varibale
 ORIGINAL_URLS from the Urls parameter in configuration.json.
 
+### HTTP/3
+
+For an application with an `https` URL in `ListenUrls`, AspNetCoreSharedServer also listens on the same port for UDP and forwards
+HTTP/3 (QUIC) to the application. The application has to do two things:
+
+1. Kestrel must listen on the HTTPS port it is given in `ASPNETCORE_URLS` with `HttpProtocols.Http1AndHttp2AndHttp3`.
+2. The application must tell clients where to find HTTP/3. Kestrel only knows its own internal port, so on its own it would
+   advertise a port that clients cannot reach. AspNetCoreSharedServer therefore passes the correct `Alt-Svc` header value, for
+   example `h3=":443"; ma=86400`, in the environment variable `ALT_SVC_HEADER`. Send it with every response:
+
+   ```csharp
+   var altSvc = Environment.GetEnvironmentVariable("ALT_SVC_HEADER");
+   if (!string.IsNullOrEmpty(altSvc))
+   {
+       app.Use(async (context, next) =>
+       {
+           context.Response.Headers["Alt-Svc"] = altSvc;
+           await next();
+       });
+   }
+   ```
+
+   `ALT_SVC_HEADER` is empty, and `HTTP3_ENABLED` is `false`, when HTTP/3 is not forwarded for the application.
+
+Things to know:
+- A UDP datagram never starts an application. Without a running application HTTP/3 requests are dropped, and clients fall back to
+  TCP, which starts it.
+- HTTP/3 traffic counts as activity for `IdleTimeout`.
+- The PROXY protocol only exists for TCP. Over HTTP/3 the application would see `127.0.0.1` as the client, so HTTP/3 is switched
+  off for applications that have `EnableProxyHeader` or `EnableProxyV2Header` set.
+- Every client gets its own session, which ends after 60 seconds without traffic. At most 4096 sessions are kept, and a new
+  session only starts with a datagram of at least 1200 bytes, the size of a QUIC client's first packet.
+- Set `"EnableHttp3": false` in `configuration.json`, or for a single application, to switch HTTP/3 off.
+
 You can also manage the configuration.json file programmatically by using AspNetCoreSharedServer.Api:
 Import AspNetCoreSharedServer.Api via nuget to your project.
 

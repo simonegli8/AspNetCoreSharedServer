@@ -33,6 +33,18 @@ public class Program
 		});
 		var app = builder.Build();
 
+		// Kestrel only knows its own internal port, so on its own it would advertise HTTP/3 on a port that clients cannot reach.
+		// AspNetCoreSharedServer passes the correct header in ALT_SVC_HEADER (empty when it does not forward HTTP/3).
+		var altSvc = Environment.GetEnvironmentVariable("ALT_SVC_HEADER");
+		if (!string.IsNullOrEmpty(altSvc))
+		{
+			app.Use(async (context, next) =>
+			{
+				context.Response.Headers["Alt-Svc"] = altSvc;
+				await next();
+			});
+		}
+
 		// Configure the HTTP request pipeline.
 		if (!app.Environment.IsDevelopment())
 		{
@@ -49,6 +61,9 @@ public class Program
 		app.UseAuthorization();
 
 		app.MapRazorPages();
+
+		// Lets the end-to-end tests tell which instance of the application answered.
+		app.MapGet("/pid", () => Environment.ProcessId.ToString());
 
 		app.Run();
 	}
