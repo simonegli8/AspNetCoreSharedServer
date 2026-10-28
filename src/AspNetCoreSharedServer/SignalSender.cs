@@ -16,6 +16,7 @@ public class SignalSender
 		var signaler = Type.GetType("Medallion.Shell.Signals.WindowsProcessSignaler, MedallionShell");
 		if (signaler == null) throw new InvalidOperationException("MedallionShell is not available. Please install the Medallion.Shell package to use this feature.");
 		var ctrlType = Type.GetType("Medallion.Shell.Signals.NativeMethods+CtrlType, MedallionShell");
+		if (ctrlType == null) throw new InvalidOperationException("MedallionShell does not have the required type. Please ensure you are using a compatible version.");
 		var sendSigintMethod = signaler
 			.GetMethod("TrySignalAsync");
 		if (sendSigintMethod == null) throw new InvalidOperationException("MedallionShell does not have the required method. Please ensure you are using a compatible version.");

@@ -63,21 +63,21 @@ public abstract class Shell
         bool errorEOF = true, outputEOF = true, hasProcessExited = true;
 	int exitCode = 0;
 
-	public Shell Parent { get; set; } = null;
+	public Shell? Parent { get; set; } = null;
 	public virtual char PathSeparator => Path.PathSeparator;
 	public bool CreateNoWindow = true;
 	public bool UseShellExecute = false;
-	public string User { get; set; }
-	public string Password { get; set; }
-        public virtual string WorkingDirectory { get; set; } = null;
-	public Encoding Encoding = null;
+	public string? User { get; set; }
+	public string? Password { get; set; }
+        public virtual string? WorkingDirectory { get; set; } = null;
+	public Encoding? Encoding = null;
 	public Dictionary<string, string> Environment = new Dictionary<string, string>();
 
 	public ProcessWindowStyle WindowStyle = ProcessWindowStyle.Minimized;
 	public bool RedirectOutput { get; set; } = true;
 	public abstract string ShellExe { get; }
 
-	public Process Process = null;
+	public Process? Process = null;
 	public bool NotFound { get; set; }
 	public static IEnumerable<string> Paths
 	{
@@ -85,12 +85,12 @@ public abstract class Shell
 		{
 			string proc, machine = "", user = "";
 			string[] sources;
-			proc = System.Environment.GetEnvironmentVariable("PATH");
+			proc = System.Environment.GetEnvironmentVariable("PATH") ?? "";
 			if (IsWindows)
 			{
-				machine = System.Environment.GetEnvironmentVariable("PATH", EnvironmentVariableTarget.Machine);
-				user = System.Environment.GetEnvironmentVariable("PATH", EnvironmentVariableTarget.User);
-				var process = System.Environment.GetEnvironmentVariable("PATH", EnvironmentVariableTarget.Process);
+				machine = System.Environment.GetEnvironmentVariable("PATH", EnvironmentVariableTarget.Machine) ?? "";
+				user = System.Environment.GetEnvironmentVariable("PATH", EnvironmentVariableTarget.User) ?? "";
+				var process = System.Environment.GetEnvironmentVariable("PATH", EnvironmentVariableTarget.Process) ?? "";
 				sources = new string[] {
 					System.Environment.GetFolderPath(System.Environment.SpecialFolder.System),
 					System.Environment.GetFolderPath(System.Environment.SpecialFolder.SystemX86),
@@ -105,9 +105,9 @@ public abstract class Shell
 		}
 	}
 
-	public virtual string Find(string cmd)
+	public virtual string? Find(string cmd)
 	{
-		string file = null;
+		string? file = null;
 		cmd = cmd.Trim('"');
 		if (cmd.IndexOf(Path.DirectorySeparatorChar) >= 0)
 		{
@@ -142,7 +142,7 @@ public abstract class Shell
 		try {
 			var proc = Process;
 			bool exited = DoNotWaitForProcessExit || hasProcessExited || proc == null;
-			if (!exited) exited = proc.HasExited;
+			if (!exited) exited = proc!.HasExited;
 			if (exited && errorEOF && outputEOF)
 			{
 				int n = 0;
@@ -180,7 +180,7 @@ public abstract class Shell
         }
 
         //public virtual StreamWriter StandardInput => Process?.StandardInput;
-        public virtual Shell ExecAsync(string cmd, Encoding encoding = null, Dictionary<string, string> environment = null)
+        public virtual Shell ExecAsync(string cmd, Encoding? encoding = null, Dictionary<string, string>? environment = null)
 	{
 		bool impersonate = !IsWindows && !string.IsNullOrEmpty(User) && !string.IsNullOrEmpty(Password);
 		if (impersonate)
@@ -342,7 +342,7 @@ public abstract class Shell
 			{
 				process.StandardInput.AutoFlush = true;
 			}
-			if (impersonate) Input.WriteLine(Password);
+			if (impersonate) Input!.WriteLine(Password);
 			return child;
 		}
 		else
@@ -358,7 +358,7 @@ public abstract class Shell
 			return child;
 		}
 	}
-	public virtual Shell Exec(string command, Encoding encoding = null, Dictionary<string, string> environment = null)
+	public virtual Shell Exec(string command, Encoding? encoding = null, Dictionary<string, string>? environment = null)
 	{
 		return ExecAsync(command, encoding, environment).Wait();
         }
@@ -366,7 +366,7 @@ public abstract class Shell
 	{
 		get
 		{
-			Shell clone = Activator.CreateInstance(GetType()) as Shell;
+			Shell clone = (Shell)Activator.CreateInstance(GetType())!;
 			clone.Parent = this;
 			clone.CreateNoWindow = this.CreateNoWindow;
 			clone.WindowStyle = this.WindowStyle;
@@ -394,7 +394,7 @@ public abstract class Shell
 		}
 	}
 
-	public virtual Shell ExecScriptAsync(string script, string args = null, Encoding encoding = null, Dictionary<string, string> environment = null)
+	public virtual Shell ExecScriptAsync(string script, string? args = null, Encoding? encoding = null, Dictionary<string, string>? environment = null)
 	{
 		script = script.Trim();
 		// adjust new lines to OS type
@@ -419,7 +419,7 @@ public abstract class Shell
 		return shell;
 	}
 
-	public virtual Shell ExecScript(string script, string args = null, Encoding encoding = null, Dictionary<string, string> environment = null)
+	public virtual Shell ExecScript(string script, string? args = null, Encoding? encoding = null, Dictionary<string, string>? environment = null)
         {
 		return ExecScriptAsync(script, args, encoding, environment).Wait();
         }
@@ -431,11 +431,11 @@ public abstract class Shell
 		return await this;
 	} */
 
-        public Action<string> Log { get; set; }
-	public Action<string> LogCommand { get; set; }
+        public Action<string>? Log { get; set; }
+	public Action<string>? LogCommand { get; set; }
 	public Action LogCommandEnd { get; set; }
-	public Action<string> LogOutput { get; set; }
-	public Action<string> LogError { get; set; }
+	public Action<string>? LogOutput { get; set; }
+	public Action<string>? LogError { get; set; }
 
 	StringBuilder output, error, outputAndError;
 
@@ -463,7 +463,7 @@ public abstract class Shell
             return this;
         }
 
-        public async Task<string> Output()
+        public async Task<string?> Output()
 	{
 		if (Process == null && NotFound) return null;
 		await this;
@@ -477,7 +477,7 @@ public abstract class Shell
 			OutputLock.Release();
 		}
 	}
-        public async Task<string> OutputAsync()
+        public async Task<string?> OutputAsync()
         {
             if (Process == null && NotFound) return null;
             await OutputLock.WaitAsync();
@@ -491,7 +491,7 @@ public abstract class Shell
             }
         }
 
-        public async Task<string> Error()
+        public async Task<string?> Error()
 	{
 		if (Process == null && NotFound) return null;
 		await this;
@@ -505,7 +505,7 @@ public abstract class Shell
 			ErrorLock.Release();
 		}
 	}
-        public async Task<string> ErrorAsync()
+        public async Task<string?> ErrorAsync()
         {
             if (Process == null && NotFound) return null;
             await ErrorLock.WaitAsync();
@@ -519,7 +519,7 @@ public abstract class Shell
             }
         }
 
-        public async Task<string> OutputAndError()
+        public async Task<string?> OutputAndError()
 	{
 		if (Process == null && NotFound) return null;
 		await this;
@@ -533,7 +533,7 @@ public abstract class Shell
 			OutputAndErrorLock.Release();
 		}
 	}
-        public async Task<string> OutputAndErrorAsync()
+        public async Task<string?> OutputAndErrorAsync()
         {
             if (Process == null && NotFound) return null;
             await OutputAndErrorLock.WaitAsync();
@@ -554,7 +554,7 @@ public abstract class Shell
 		return exitCode;
 	}
 	public bool Redirect = false;
-	public string LogFile = null;
+	public string? LogFile = null;
 	protected void AppendAllText(string filename, string text)
 	{
 		try
@@ -634,9 +634,9 @@ public abstract class Shell
 			ErrorLock.Release();
 		}
 	}
-	public StreamWriter Input => Process?.StandardInput;
+	public StreamWriter? Input => Process?.StandardInput;
 
-	static Shell standard = null;
+	static Shell? standard = null;
 	public static Shell Standard => standard ??= new StandardShell();
 
 	public static Shell Default => Standard;

@@ -53,7 +53,7 @@ public class OSInfo
             info.Arguments = "/bin/ls";
             info.RedirectStandardOutput = true;
             info.UseShellExecute = false;
-            var p = Process.Start(info);
+            var p = Process.Start(info)!;
             return p.StandardOutput.ReadToEnd().Contains("musl");
         }
     }
@@ -80,7 +80,7 @@ public class OSInfo
             if (IsNetBSD) return flavor = OSFlavor.NetBSD;
             if (IsLinux)
             {
-                string name = null;
+                string? name = null;
                 const string OsReleaseFile = "/etc/os-release";
                 if (File.Exists(OsReleaseFile))
                 {
@@ -88,7 +88,7 @@ public class OSInfo
                     var match = Regex.Match(osRelease, "(?<=^NAME\\s*=\\s*\")[^\"]+(?=\")", RegexOptions.IgnoreCase | RegexOptions.Multiline);
                     if (match.Success) name = match.Value;
                     match = Regex.Match(osRelease, @"(?<=^VERSION_ID\s*=\s*""?[^""0-9]*?)[0-9]+(\.[0-9]+)?(\.[0-9]+)?(\.[0-9]+)?", RegexOptions.IgnoreCase | RegexOptions.Multiline);
-                    Version osReleaseVersion;
+                    Version? osReleaseVersion;
                     int intVersion;
                     if (match.Success)
                     {
@@ -101,11 +101,11 @@ public class OSInfo
                 }
                 if (name == null)
                 {
-                    var osRelease = Services.Shell.Standard.Exec("lsb_release -a").Output().Result;
+                    var osRelease = Services.Shell.Standard.Exec("lsb_release -a").Output().Result ?? "";
                     var match = Regex.Match(osRelease, "(?<=^Distributor ID\\s*:\\s*)[^\\s$]+(?=\\s|$)", RegexOptions.IgnoreCase | RegexOptions.Multiline);
                     if (match.Success) name = match.Value;
                     match = Regex.Match(osRelease, @"(?<=^Release\s*:[^0-9]*?)[0-9]+\.[0-9]+(\.[0-9]+)?(\.[0-9]+)?", RegexOptions.IgnoreCase | RegexOptions.Multiline);
-                    if (match.Success) Version.TryParse(match.Value, out version);
+                    if (match.Success && Version.TryParse(match.Value, out var releaseVersion)) version = releaseVersion;
                 }
                 // TODO use hostnamectl
                 OSFlavor f;
@@ -121,7 +121,7 @@ public class OSInfo
                     {
                         for (var os = OSFlavor.Min; os <= OSFlavor.Max; os++)
                         {
-                            if (Regex.IsMatch(name, $"(?<=^|\\s){Regex.Escape(Enum.GetName(typeof(OSFlavor), os))}(?=\\s|$)", RegexOptions.IgnoreCase))
+                            if (Regex.IsMatch(name, $"(?<=^|\\s){Regex.Escape(Enum.GetName(typeof(OSFlavor), os)!)}(?=\\s|$)", RegexOptions.IgnoreCase))
                             {
                                 flavor = os;
                                 break;
@@ -129,7 +129,7 @@ public class OSInfo
                         }
                         for (var os = OSFlavor.Min; os <= OSFlavor.Max; os++)
                         {
-                            if (name.IndexOf(Enum.GetName(typeof(OSFlavor), os)) >= 0)
+                            if (name.IndexOf(Enum.GetName(typeof(OSFlavor), os)!) >= 0)
                             {
                                 flavor = os;
                                 break;

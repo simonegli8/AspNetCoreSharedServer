@@ -15,7 +15,7 @@ public class SystemdServiceController : ServiceController
 	public override IEnumerable<OSService> All()
 	{
 		var text = Shell.Exec("systemctl --full --type=service --no-pager --all").Output().Result;
-		var matches = Regex.Matches(text, @"^.?\s+(?<name>.*?).service\s+(?<loaded>[^\s$]+)\s+(?<active>[^\s$]+)\s+(?<state>[^\s$]+)\s+(?<desc>.*?)$", RegexOptions.Multiline);
+		var matches = Regex.Matches(text ?? "", @"^.?\s+(?<name>.*?).service\s+(?<loaded>[^\s$]+)\s+(?<active>[^\s$]+)\s+(?<state>[^\s$]+)\s+(?<desc>.*?)$", RegexOptions.Multiline);
 		foreach (Match match in matches)
 		{
 			var name = Path.GetFileNameWithoutExtension(match.Groups["name"].Value);
@@ -37,14 +37,14 @@ public class SystemdServiceController : ServiceController
 			yield return srvc;
 		}
 	}
-	public override OSService Info(string serviceId)
+	public override OSService? Info(string serviceId)
 	{
 		var output = Shell.Exec($"systemctl status {serviceId}.service --no-pager --full").Output().Result;
 		if (output == null) return null;
 
 		var match = Regex.Match(output, @"^\s*Loaded:\s*(?<loaded>[^\s$]+)(.*\r?\n)*\s*Active:\s*(?<active>[^\s$]+)\s+\((?<status>[^\)]+)\)", RegexOptions.Multiline);
 
-		string loaded = null, active = null, status = null;
+		string? loaded = null, active = null, status = null;
 		if (match.Success)
 		{
 			loaded = match.Groups["loaded"].Value;
@@ -145,7 +145,7 @@ WantedBy=multi-user.target
 				cmd = exe.Substring(1, indexOfQuote - 1);
 				if (!cmd.Contains(Path.DirectorySeparatorChar))
 				{
-					cmd = Shell.Find(cmd);
+					cmd = Shell.Find(cmd) ?? cmd;
 					if (cmd != null)
 					{
 						if (cmd.Contains(' ')) exe = @$"""{cmd}"" {exe.Substring(indexOfQuote + 1)}";
@@ -162,7 +162,7 @@ WantedBy=multi-user.target
 				cmd = exe.Substring(0, indexOfSpace);
 				if (!cmd.Contains(Path.DirectorySeparatorChar))
 				{
-					cmd = Shell.Find(cmd);
+					cmd = Shell.Find(cmd) ?? cmd;
 					if (cmd != null)
 					{
 						if (cmd.Contains(' ')) exe = $@"""{cmd}"" {exe.Substring(indexOfSpace + 1)}";
