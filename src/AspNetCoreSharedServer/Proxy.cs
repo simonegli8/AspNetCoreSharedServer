@@ -256,7 +256,7 @@ public class Proxy
                 await Task.WhenAll(tasks);
             } while (!Cancel.IsCancellationRequested);
         }
-        catch (OperationCanceledException ex)
+        catch (OperationCanceledException)
         {
         }
         catch (SocketException ex)

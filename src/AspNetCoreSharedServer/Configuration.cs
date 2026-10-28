@@ -1028,7 +1028,7 @@ public class Configuration
                     await server.ListenAsync();
                     await app.SetStatusAsync(Status.Stopped, null, false, false);
                 }
-                catch (Exception ex)
+                catch (Exception)
                 {
                 }
             });
@@ -1049,7 +1049,7 @@ public class Configuration
                     await server.ListenAsync();
                     await app.SetStatusAsync(Status.Stopped, null, false, false);
                 }
-                catch (Exception ex)
+                catch (Exception)
                 {
                 }
             });

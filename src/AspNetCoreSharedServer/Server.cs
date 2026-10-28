@@ -79,7 +79,6 @@ public class Server
     public int HttpPort = -1, HttpsPort = -1, NetTcpPort = -1;
     public DateTime Started = DateTime.UtcNow;
     public long Ticks = DateTime.UtcNow.ToBinary();
-    int KestrelRestarts = 0;
     const int MaxKestrelRestarts = 9; // Maximum number of times to restart Kestrel before giving up
     public DateTime LastWork => DateTime.FromBinary(Interlocked.Read(ref Ticks));
     Proxy Proxy;

@@ -331,7 +331,7 @@ public class Program
                         using var mylock = Configuration.MutexLock.LockAsync(TimeSpan.Zero);
                         Console.WriteLine("aspnet-server is not locked.");
                     }
-                    catch (Exception ex)
+                    catch (Exception)
                     {
                         Console.WriteLine("aspnet-server is locked.");
                     }
@@ -378,7 +378,7 @@ possible values for argument:
                 config = await config.LoadConfigAsync(false) ?? throw new InvalidOperationException("The configuration could not be loaded.");
             }
         }
-        catch (Exception e) { }
+        catch (Exception) { }
 
         var settings = new HostApplicationBuilderSettings
         {

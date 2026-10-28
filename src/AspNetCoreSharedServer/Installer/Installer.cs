@@ -34,7 +34,7 @@ public class Installer
         StringBuilder sb = new StringBuilder();
 
         byte[] randomBytes = new byte[4];
-        RNGCryptoServiceProvider rng = new RNGCryptoServiceProvider();
+        var rng = RandomNumberGenerator.Create();
         rng.GetBytes(randomBytes);
 
         // Convert 4 bytes into a 32-bit integer value.
@@ -254,7 +254,7 @@ public class Installer
                     await conf.SaveAsync(false, false);
                 }
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 throw;
             }

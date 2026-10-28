@@ -33,7 +33,7 @@ public class SignalSender
 			{
 				SendSigintWindows(pid);
 			}
-		} catch (Exception ex)
+		} catch (Exception)
 		{
 
 		}
