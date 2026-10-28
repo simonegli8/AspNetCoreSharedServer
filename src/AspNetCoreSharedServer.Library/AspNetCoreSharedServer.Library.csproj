@@ -5,6 +5,7 @@
         <TargetFramework>net10.0</TargetFramework>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
+        <LangVersion>14</LangVersion>
         <RootNamespace>AspNetCoreSharedServer</RootNamespace>
         <AssemblyName>AspNetCoreSharedServer</AssemblyName>
         <DefineConstants>$(DefineConstants);Server</DefineConstants>
