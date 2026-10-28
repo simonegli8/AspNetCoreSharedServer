@@ -1,4 +1,4 @@
-SET PackageVersion=3.2.4
+SET PackageVersion=4.0.0
 SET Configuration=Release
 
 del nupkg\*.nupkg

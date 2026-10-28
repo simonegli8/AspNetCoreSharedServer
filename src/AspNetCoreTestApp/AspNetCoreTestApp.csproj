@@ -8,4 +8,8 @@
         <RestoreSources>$(RestoreSources);..\..\nupkg;https://api.nuget.org/v3/index.json</RestoreSources>
     </PropertyGroup>
 
+    <ItemGroup>
+        <ProjectReference Include="..\AspNetCoreSharedServer.Middleware\AspNetCoreSharedServer.Middleware.csproj" />
+    </ItemGroup>
+
 </Project>

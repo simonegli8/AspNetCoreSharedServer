@@ -27,21 +27,13 @@ public class AltSvcTests
     [Fact]
     public void Uses_the_documented_variable_names()
     {
-        Assert.Equal("ALT_SVC_HEADER", Server.AltSvcVariable);
+        Assert.Equal("HTTP3_ALT_SVC_HEADER", Server.AltSvcVariable);
         Assert.Equal("HTTP3_ENABLED", Server.Http3EnabledVariable);
     }
 
     /// <summary>Runs the test assembly as a helper program and returns its output lines.</summary>
-    static (string[] Lines, Process Process) RunHelper(string arguments, Action<ProcessStartInfo>? configure = null)
-    {
-        var info = new ProcessStartInfo("dotnet") { RedirectStandardOutput = true, UseShellExecute = false };
-        info.Arguments = $"\"{TestPaths.TestAssembly}\" {arguments}";
-        configure?.Invoke(info);
-        var process = Process.Start(info)!;
-        var lines = process.StandardOutput.ReadToEnd().Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(line => line.TrimEnd('\r')).ToArray();
-        process.WaitForExit();
-        return (lines, process);
-    }
+    static (string[] Lines, Process Process) RunHelper(string arguments, Action<ProcessStartInfo>? configure = null) =>
+        HelperProcess.Run(arguments, configure);
 
     [Fact]
     public void Quoted_arguments_arrive_as_exactly_one_argument_each()

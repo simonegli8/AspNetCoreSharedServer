@@ -1,0 +1,99 @@
+name: Tests
+
+on:
+  push:
+    branches: [main, middleware-and-sudo-launch]
+  pull_request:
+  workflow_dispatch:
+
+# A new push to a branch or pull request replaces the run that is still going.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  test:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      # One failing system must not hide the results of the others.
+      fail-fast: false
+      matrix:
+        include:
+          # Both Mac architectures: they have different stat records (the owner of a file is read from it) and different sudo setups.
+          - { name: "macOS arm64 (Apple Silicon)", os: macos-latest }
+          - { name: "macOS x64 (Intel)", os: macos-15-intel }
+          # Linux arm64 runs the arm64 stat layout for real; x64 and Windows are the baseline.
+          - { name: "Linux x64", os: ubuntu-latest }
+          - { name: "Linux arm64", os: ubuntu-24.04-arm }
+          - { name: "Windows x64", os: windows-latest }
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      # Builds everything, including the Api (netstandard2.0), the multi-targeted Middleware and the test app.
+      - name: Build
+        run: dotnet build AspNetCoreSharedServer.slnx --configuration Release
+
+      - name: Test
+        run: >
+          dotnet test src/AspNetCoreSharedServer.Tests --configuration Release --no-build
+          --logger "trx;LogFileName=test-results.trx" --logger "console;verbosity=normal"
+
+      # Some tests only run as root, because only root can start a process as another user. Most important is SudoLaunchTests: it proves
+      # that an app cannot get root back, which on macOS is checked nowhere else. UnixStatTests also chown a file to another user then.
+      - name: Test as root (privilege drop, file owners)
+        if: runner.os != 'Windows'
+        run: >
+          sudo env "PATH=$PATH" dotnet test src/AspNetCoreSharedServer.Tests --configuration Release --no-build
+          --filter "FullyQualifiedName~SudoLaunchTests|FullyQualifiedName~UnixStatTests|FullyQualifiedName~UnixTests"
+          --logger "trx;LogFileName=test-results-root.trx" --logger "console;verbosity=normal"
+
+      # A skipped test counts as passed for dotnet test, so prove that the root-only tests really ran and passed on this machine.
+      - name: Check that the root-only tests ran
+        if: runner.os != 'Windows'
+        shell: pwsh
+        run: |
+          $xml = [xml](Get-Content (Get-ChildItem -Recurse -Filter "test-results-root.trx" | Select-Object -First 1).FullName -Raw)
+          $ns = New-Object System.Xml.XmlNamespaceManager($xml.NameTable)
+          $ns.AddNamespace("t", "http://microsoft.com/schemas/VisualStudio/TeamTest/2010")
+          $results = $xml.SelectNodes("//t:UnitTestResult[contains(@testName, 'SudoLaunchTests')]", $ns)
+          $passed = @($results | Where-Object { $_.outcome -eq "Passed" }).Count
+          Write-Host "::notice title=Root-only tests::SudoLaunchTests passed: $passed of $($results.Count) on ${{ matrix.os }} (uid $(id -u) is the test runner, tests ran under sudo)"
+          if ($results.Count -eq 0 -or $passed -ne $results.Count) { Write-Host "::error::The privilege drop tests did not all pass (skipped tests do not count)"; exit 1 }
+
+      # The log of a run needs a login to read; annotations do not, and they show on the run summary page.
+      - name: Show the failed tests
+        if: failure()
+        shell: pwsh
+        run: |
+          Get-ChildItem -Recurse -Filter "*.trx" | ForEach-Object {
+            $xml = [xml](Get-Content $_.FullName -Raw)
+            $ns = New-Object System.Xml.XmlNamespaceManager($xml.NameTable)
+            $ns.AddNamespace("t", "http://microsoft.com/schemas/VisualStudio/TeamTest/2010")
+            foreach ($result in $xml.SelectNodes("//t:UnitTestResult[@outcome='Failed']", $ns)) {
+              $message = $result.SelectSingleNode("t:Output/t:ErrorInfo/t:Message", $ns).InnerText
+              $stack = $result.SelectSingleNode("t:Output/t:ErrorInfo/t:StackTrace", $ns).InnerText
+              $text = ($message + " | " + ($stack -split "`n" | Select-Object -First 3 -join " ")) -replace "%", "%25" -replace "`r", "" -replace "`n", "%0A"
+              Write-Host "::error title=$($result.testName)::$text"
+            }
+          }
+
+      - name: Keep the test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.os }}
+          path: "**/TestResults/*.trx"
+          if-no-files-found: ignore

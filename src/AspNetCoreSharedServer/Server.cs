@@ -28,7 +28,6 @@ public class Server
     public CancellationTokenSource TcpCancel = new CancellationTokenSource();
     public CancellationTokenSource UdpCancel = new CancellationTokenSource();
 
-    static AsyncLock UidLock = new AsyncLock();
     const int ConnectTimeoutMs = 30000;
     /// <summary>
     /// Connects to the app on loopback, retrying until the app accepts connections. Throws OperationCanceledException
@@ -142,101 +141,52 @@ public class Server
             ?.Replace("${nettcpport}", NetTcpPort.ToString())
             ?.Replace("${loopbackV4}", LoopbackTextV4)
             ?.Replace("${loopbackV6}", LoopbackTextV6);
-        uint? uid = null, gid = null;
         var altSvc = CreateAltSvcHeader(Proxy.Http3Active, Proxy.HasHttps, Proxy.PublicHttpsPort);
+        var proxyProtocol = CreateProxyProtocolVersion(Application.EnableProxyHeader, Application.EnableProxyV2Header);
 
-        if (!OSInfo.IsWindows && Unix.IsRoot &&
-            !string.IsNullOrEmpty(user))
+        // The environment of the app: its own configuration, then the variables the server defines, which an app cannot override.
+        var variables = CreateEnvironment(Application.Environment, Application.Urls, urls.ToString(), altSvc, proxyProtocol);
+
+        // What to run: dotnet <assembly> <arguments>, or an AOT executable.
+        string program, programArguments;
+        if (dotnet)
         {
-            if (!OSInfo.IsMac)
-            {
-                // If running as root, use sudo to drop privileges.
-                // Every value placed before "--" is quoted, so that it cannot add sudo options or change the command.
-                var sudoArgs = new List<string> { "-u", QuoteArg(user) };
-                if (!string.IsNullOrEmpty(group))
-                {
-                    sudoArgs.Add("-g");
-                    sudoArgs.Add(QuoteArg(group));
-                }
-                // sudo resets the environment, so pass the app's environment variables on its command line.
-                foreach (var variable in Application.Environment ?? new Dictionary<string, string>())
-                {
-                    if (variable.Key is "ASPNETCORE_URLS" or "ORIGINAL_URLS" or AltSvcVariable or Http3EnabledVariable) continue;
-                    if (!System.Text.RegularExpressions.Regex.IsMatch(variable.Key, "^[A-Za-z_][A-Za-z0-9_]*$"))
-                    {
-                        Logger.LogWarning($"{Application.Name}: ignoring environment variable with invalid name '{variable.Key}'.");
-                        continue;
-                    }
-                    sudoArgs.Add(QuoteArg($"{variable.Key}={variable.Value ?? ""}"));
-                }
-                sudoArgs.Add(QuoteArg($"ASPNETCORE_URLS={urls}"));
-                sudoArgs.Add(QuoteArg($"ORIGINAL_URLS={Application.Urls ?? ""}"));
-                sudoArgs.Add(QuoteArg($"{AltSvcVariable}={altSvc}"));
-                sudoArgs.Add(QuoteArg($"{Http3EnabledVariable}={(altSvc.Length > 0 ? "true" : "false")}"));
-                info.FileName = "sudo";
-                var dotnetwithpath = Find("dotnet") ?? "dotnet";
-                info.Arguments = $"{string.Join(" ", sudoArgs)} -- {(dotnet ? QuoteArg(dotnetwithpath) + " " : "")}{QuoteArg(Application.Assembly)}{(string.IsNullOrEmpty(arguments) ? "" : " " + arguments)}";
-            }
-            else
-            {
-                var userrec = Unix.getpwnam(user);
-                var grouprec = !string.IsNullOrEmpty(group) ? Unix.getgrnam(group) : IntPtr.Zero;
-                if (userrec == IntPtr.Zero)
-                {
-                    return await FailStartAsync($"User {user} not found.", $"User {user} not found.");
-                }
-                else
-                {
-                    var rec = Marshal.PtrToStructure<Unix.Passwd>(userrec);
-                    uid = rec.pw_uid;
-                    gid = rec.pw_gid;
-                }
-                if (!string.IsNullOrEmpty(group) && grouprec == IntPtr.Zero)
-                {
-                    return await FailStartAsync($"Group {group} not found.", $"Group {group} not found.");
-                }
-                else if (grouprec != IntPtr.Zero)
-                {
-                    var rec = Marshal.PtrToStructure<Unix.Group>(grouprec);
-                    gid = rec.gr_gid;
-                }
+            program = Find("dotnet") ?? "dotnet";
+            programArguments = $"{QuoteArg(Application.Assembly)}{(string.IsNullOrEmpty(arguments) ? "" : " " + arguments)}";
+        }
+        else
+        {  // Assembly is AOT
+            program = Application.Assembly;
+            programArguments = arguments ?? "";
+        }
 
-                if (dotnet)
-                {
-                    info.FileName = Find("dotnet") ?? "dotnet";
-                    info.Arguments = $"\"{Application.Assembly}\"{(string.IsNullOrEmpty(arguments) ? "" : " " + arguments)}";
-                }
-                else
-                {  // Assembly is AOT
-                    info.FileName = Application.Assembly;
-                    info.Arguments = arguments ?? "";
-                }
+        if (!OSInfo.IsWindows && Unix.IsRoot && !string.IsNullOrEmpty(user))
+        {
+            // A typo in the user or group would otherwise show up as sudo failing and the app exiting at once.
+            if (!Unix.UserExists(user))
+            {
+                return await FailStartAsync($"User {user} not found.", $"User {user} not found.");
             }
+            if (!string.IsNullOrEmpty(group) && !Unix.GroupExists(group))
+            {
+                return await FailStartAsync($"Group {group} not found.", $"Group {group} not found.");
+            }
+
+            // Drop privileges with sudo, on Linux and on macOS alike. The app becomes the other user completely (real, effective
+            // and saved ids). Switching the effective user of this process around Process.Start would not: the real user stays root,
+            // and the app could switch back to it.
+            info.FileName = "sudo";
+            info.Arguments = CreateSudoArguments(user, group, variables,
+                $"{QuoteArg(program)}{(programArguments.Length > 0 ? " " + programArguments : "")}", Logger);
         }
         else
         {
-            // Otherwise, run dotnet directly
-            if (dotnet)
-            {
-                info.FileName = Find("dotnet") ?? "dotnet";
-                info.Arguments = $"\"{Application.Assembly}\"{(string.IsNullOrEmpty(arguments) ? "" : " " + arguments)}";
-            }
-            else
-            {  // Assembly is AOT
-                info.FileName = Application.Assembly;
-                info.Arguments = arguments ?? "";
-            }
+            info.FileName = program;
+            info.Arguments = programArguments;
+            foreach (var variable in variables) info.Environment[variable.Key] = variable.Value;
         }
 
         info.CreateNoWindow = false;
-        foreach (var key in Application.Environment?.Keys ?? Enumerable.Empty<string>())
-        {
-            info.Environment[key] = Application.Environment![key];
-        }
-        info.Environment["ORIGINAL_URLS"] = Application.Urls ?? "";
-        info.Environment["ASPNETCORE_URLS"] = urls.ToString();
-        info.Environment[AltSvcVariable] = altSvc;
-        info.Environment[Http3EnabledVariable] = altSvc.Length > 0 ? "true" : "false";
         Logger.LogInformation($"Starting {Application.Name} on {urls}");
         info.RedirectStandardError = info.RedirectStandardOutput = true;
         info.RedirectStandardInput = true;
@@ -250,50 +200,7 @@ public class Server
         ServerProcess.OutputDataReceived += async (_, args) => await OnOutputAsync(args.Data, Console.Out);
         ServerProcess.ErrorDataReceived += async (_, args) => await OnOutputAsync(args.Data, Console.Error);
 
-        if (gid != null || uid != null)
-        {
-            bool switchFailed = false, revertFailed = false;
-            using (await UidLock.LockAsync())
-            {
-                try
-                {
-                    // Switch group first, then user
-                    if (gid != null && Unix.setegid(gid.Value) != 0 || uid != null && Unix.seteuid(uid.Value) != 0)
-                    {
-                        switchFailed = true;
-                    }
-                    else
-                    {
-                        ServerProcess.Start();
-                    }
-                }
-                finally
-                {
-                    // Always revert to root: also when only one of the two switches succeeded, or Start threw.
-                    // User first, so that the group can be restored with root privileges.
-                    var userReverted = Unix.seteuid(0) == 0;
-                    var groupReverted = Unix.setegid(0) == 0;
-                    revertFailed = !userReverted || !groupReverted;
-                    if (revertFailed) Logger.LogError("Failed to switch back to root.");
-                }
-            }
-
-            // Only now that root is restored can the status (config file) be written.
-            if (switchFailed)
-            {
-                return await FailStartAsync("Failed to switch user/group (need to run as root).",
-                    "Failed to switch user/group (need to run as root).");
-            }
-            if (revertFailed)
-            {
-                await Application.SetStatusAsync(Status.Error, $"Failed to switch back to root.", true);
-                return true; // The process was already started, so the server must stay registered.
-            }
-        }
-        else
-        {
-            ServerProcess.Start();
-        }
+        ServerProcess.Start();
 
         ServerProcess.BeginErrorReadLine();
         ServerProcess.BeginOutputReadLine();
@@ -312,10 +219,46 @@ public class Server
     }
 
     /// <summary>Environment variable holding the ready-made Alt-Svc header value for the app to send. Empty if HTTP/3 is not forwarded.</summary>
-    public const string AltSvcVariable = "ALT_SVC_HEADER";
+    public const string AltSvcVariable = "HTTP3_ALT_SVC_HEADER";
     /// <summary>Environment variable that is "true" when HTTP/3 is forwarded to the app, otherwise "false".</summary>
     public const string Http3EnabledVariable = "HTTP3_ENABLED";
     const int AltSvcMaxAgeSeconds = 86400;
+
+    /// <summary>
+    /// Environment variable that tells the app that every TCP connection to it starts with a PROXY protocol header, and of which
+    /// version: "v1" or "v2". It is not set when the server sends no such header.
+    /// </summary>
+    public const string ProxyProtocolVariable = "PROXY_PROTOCOL";
+
+    /// <summary>
+    /// "v2" or "v1" if the server sends a PROXY protocol header at the start of every TCP connection to the app, otherwise an empty
+    /// string. When both are enabled the server sends v2. This is the one place that decides it, for the header that is sent and for
+    /// the environment variable that announces it, so that the two cannot disagree.
+    /// </summary>
+    public static string CreateProxyProtocolVersion(bool? enableProxyHeader, bool? enableProxyV2Header) =>
+        enableProxyV2Header == true ? "v2" : enableProxyHeader == true ? "v1" : "";
+
+    /// <summary>
+    /// The environment of an app: the variables of its own configuration, then the ones the server defines, which an app cannot override.
+    /// <see cref="ProxyProtocolVariable"/> is only there when the server sends a PROXY header (<paramref name="proxyProtocol"/> is not
+    /// empty); a value from the configuration of the app is removed, because it would claim something that is not true.
+    /// </summary>
+    internal static Dictionary<string, string> CreateEnvironment(IReadOnlyDictionary<string, string>? appEnvironment, string? originalUrls,
+        string urls, string altSvc, string proxyProtocol)
+    {
+        var variables = new Dictionary<string, string>();
+        if (appEnvironment != null)
+        {
+            foreach (var variable in appEnvironment) variables[variable.Key] = variable.Value ?? "";
+        }
+        variables["ORIGINAL_URLS"] = originalUrls ?? "";
+        variables["ASPNETCORE_URLS"] = urls;
+        variables[AltSvcVariable] = altSvc;
+        variables[Http3EnabledVariable] = altSvc.Length > 0 ? "true" : "false";
+        variables.Remove(ProxyProtocolVariable);
+        if (proxyProtocol.Length > 0) variables[ProxyProtocolVariable] = proxyProtocol;
+        return variables;
+    }
 
     /// <summary>
     /// The Alt-Svc header value that advertises HTTP/3 on the proxy's public HTTPS port, or an empty string when HTTP/3 is not forwarded.
@@ -324,6 +267,46 @@ public class Server
     /// </summary>
     public static string CreateAltSvcHeader(bool http3Enabled, bool hasHttps, int publicHttpsPort) =>
         http3Enabled && hasHttps && publicHttpsPort > 0 ? $"h3=\":{publicHttpsPort}\"; ma={AltSvcMaxAgeSeconds}" : "";
+
+    static readonly System.Text.RegularExpressions.Regex VariableName = new("^[A-Za-z_][A-Za-z0-9_]*$");
+
+    /// <summary>
+    /// The sudo command line (everything after "sudo") that runs <paramref name="command"/> as another user: <c>-H -u user [-g group]
+    /// NAME=value... -- command</c>. The command must already be quoted. Every value in front of "--" is quoted here, so that none of
+    /// them can add sudo options or change the command.
+    /// </summary>
+    /// <param name="environment">
+    /// The environment of the app. sudo resets the environment, so the variables travel on its command line. USER and LOGNAME are
+    /// added for the target user unless the environment defines them.
+    /// </param>
+    internal static string CreateSudoArguments(string user, string? group, IReadOnlyDictionary<string, string> environment, string command, ILogger? logger = null)
+    {
+        // -H makes sudo set HOME to the home directory of the target user. sudo reads the password database itself; the layout of
+        // a passwd record differs between Linux and macOS, so the server does not read it.
+        var args = new List<string> { "-H", "-u", QuoteArg(user) };
+        if (!string.IsNullOrEmpty(group))
+        {
+            args.Add("-g");
+            args.Add(QuoteArg(group));
+        }
+
+        var variables = new Dictionary<string, string>(environment);
+        if (!user.StartsWith('#')) // "#1001" names the user by number, so there is no name to put into USER
+        {
+            variables.TryAdd("USER", user);
+            variables.TryAdd("LOGNAME", user);
+        }
+        foreach (var variable in variables)
+        {
+            if (!VariableName.IsMatch(variable.Key))
+            {
+                logger?.LogWarning("Ignoring environment variable with invalid name '{Name}'.", variable.Key);
+                continue;
+            }
+            args.Add(QuoteArg($"{variable.Key}={variable.Value}"));
+        }
+        return $"{string.Join(" ", args)} -- {command}";
+    }
 
     /// <summary>Quotes a single argument for a ProcessStartInfo.Arguments string, so it is parsed back as exactly one argument.</summary>
     internal static string QuoteArg(string value)
@@ -520,6 +503,7 @@ public class Server
                 var idleTimeout = muchmem ?
                     Proxy.IdleTimeout :
                     Configuration.Current.IdleTimeoutOnLowMemory ?? Configuration.DefaultIdleTimeoutOnLowMemory;
+                if (Proxy.IdleTimeout != TimeSpan.Zero && Proxy.IdleTimeout < idleTimeout) idleTimeout = Proxy.IdleTimeout;
 
                 if ((Proxy.IdleTimeout != null && Proxy.IdleTimeout != TimeSpan.Zero ||
                     (!muchmem && idleTimeout != TimeSpan.Zero)) &&
@@ -676,9 +660,10 @@ public class Server
         using (var destStream = destination.GetStream())
         {
             // Send proxy header
-            if (Application.EnableProxyHeader == true || Application.EnableProxyV2Header == true)
+            var proxyProtocol = CreateProxyProtocolVersion(Application.EnableProxyHeader, Application.EnableProxyV2Header);
+            if (proxyProtocol.Length > 0)
             {
-                var v2 = Application.EnableProxyV2Header == true;
+                var v2 = proxyProtocol == "v2";
                 var proxyHeader = CreateProxyHeader(source, v2);
                 // Inject the PROXY header
                 await destStream.WriteAsync(proxyHeader, 0, proxyHeader.Length, cancel.Token);

@@ -20,6 +20,7 @@
 
     <ItemGroup>
         <ProjectReference Include="..\AspNetCoreSharedServer\AspNetCoreSharedServer.csproj" />
+        <ProjectReference Include="..\AspNetCoreSharedServer.Middleware\AspNetCoreSharedServer.Middleware.csproj" />
         <!-- Only built, not referenced: the end-to-end tests run it as an application behind the server. -->
         <ProjectReference Include="..\AspNetCoreTestApp\AspNetCoreTestApp.csproj" ReferenceOutputAssembly="false" />
     </ItemGroup>
