@@ -60,6 +60,23 @@ jobs:
           --filter "FullyQualifiedName~SudoLaunchTests|FullyQualifiedName~UnixStatTests|FullyQualifiedName~UnixTests"
           --logger "trx;LogFileName=test-results-root.trx" --logger "console;verbosity=normal"
 
+      # The log of a run needs a login to read; annotations do not, and they show on the run summary page.
+      - name: Show the failed tests
+        if: failure()
+        shell: pwsh
+        run: |
+          Get-ChildItem -Recurse -Filter "*.trx" | ForEach-Object {
+            $xml = [xml](Get-Content $_.FullName -Raw)
+            $ns = New-Object System.Xml.XmlNamespaceManager($xml.NameTable)
+            $ns.AddNamespace("t", "http://microsoft.com/schemas/VisualStudio/TeamTest/2010")
+            foreach ($result in $xml.SelectNodes("//t:UnitTestResult[@outcome='Failed']", $ns)) {
+              $message = $result.SelectSingleNode("t:Output/t:ErrorInfo/t:Message", $ns).InnerText
+              $stack = $result.SelectSingleNode("t:Output/t:ErrorInfo/t:StackTrace", $ns).InnerText
+              $text = ($message + " | " + ($stack -split "`n" | Select-Object -First 3 -join " ")) -replace "%", "%25" -replace "`r", "" -replace "`n", "%0A"
+              Write-Host "::error title=$($result.testName)::$text"
+            }
+          }
+
       - name: Keep the test results
         if: failure()
         uses: actions/upload-artifact@v4
