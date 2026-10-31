@@ -2,7 +2,7 @@
   "profiles": {
     "AspNetCoreSharedServer": {
       "commandName": "Project",
-      "commandLineArgs": "",
+      "commandLineArgs": "status",
       "environmentVariables": {
         "DOTNET_ENVIRONMENT": "Development"
       },

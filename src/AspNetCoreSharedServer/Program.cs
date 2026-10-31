@@ -295,7 +295,7 @@ public class Program
                     if (args.Length == 1)
                     {
                         var info = Installer.ServiceController.Info(Installer.ServiceId);
-                        Console.WriteLine(info?.Status.ToString());
+                        Console.WriteLine(info?.Status.ToString() ?? "aspnet-server is not installed.");
                     }
                     else
                     {
