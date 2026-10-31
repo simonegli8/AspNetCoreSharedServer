@@ -424,6 +424,8 @@ possible values for argument:
             builder.Logging.AddProvider(
                 new SyslogLoggerProvider(config.Syslog.Protocol, config.Syslog.Host, config.Syslog.Port ?? 514));
         }
+        if (Util.OSInfo.IsWindows) builder.Services.AddWindowsService(options => options.ServiceName = Installer.ServiceId);
+        else if (Util.OSInfo.IsSystemd) builder.Services.AddSystemd();
         builder.Services.AddHostedService<Worker>();
 
         try

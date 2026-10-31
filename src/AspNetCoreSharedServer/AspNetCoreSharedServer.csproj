@@ -67,6 +67,8 @@
         <PackageReference Include="SyslogNet.ClientStandard" Version="0.3.4" />
         <PackageReference Include="Hardware.Info" Version="110.0.0.1" />
         <PackageReference Include="System.ServiceProcess.ServiceController" Version="10.0.0" />
+        <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.0" />
+        <PackageReference Include="Microsoft.Extensions.Hosting.Systemd" Version="10.0.0" />
     </ItemGroup>
 
     <ItemGroup>

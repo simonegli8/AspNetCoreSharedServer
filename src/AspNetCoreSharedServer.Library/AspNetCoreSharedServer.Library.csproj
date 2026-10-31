@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk.Worker">
 
     <PropertyGroup>
-        <OutputType>Exe</OutputType>
+        <OutputType>Library</OutputType>
         <TargetFramework>net10.0</TargetFramework>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
@@ -42,9 +42,9 @@
         <Compile Include="../AspNetCoreSharedServer/OSInfo.cs">
             <Link>OSInfo.cs</Link>
         </Compile>
-        <Compile Include="../AspNetCoreSharedServer/Program.cs">
+        <None Include="../AspNetCoreSharedServer/Program.cs">
             <Link>Program.cs</Link>
-        </Compile>
+        </None>
         <Compile Include="../AspNetCoreSharedServer/Proxy.cs">
             <Link>Proxy.cs</Link>
         </Compile>
