@@ -23,7 +23,7 @@ public class Installer
     {
         get
         {
-            if (OSInfo.IsWindows) throw new PlatformNotSupportedException();
+            if (OSInfo.IsWindows) return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), ServiceId, "log");
             else return $"/var/log/{ServiceId}";
         }
     }
@@ -262,7 +262,8 @@ public class Installer
         }
         const string Description = "ASP.NET Core Shared Server support for shared hosting of ASP.NET Core applications";
         string Command;
-        if (!OSInfo.IsMac) Command = $"/root/.dotnet/tools/{ServiceId}";
+        if (OSInfo.IsWindows) Command = Path.ChangeExtension(Assembly.GetExecutingAssembly().Location, ".exe");
+        else if (!OSInfo.IsMac) Command = $"/root/.dotnet/tools/{ServiceId}";
         else Command = $"/var/bin/{ServiceId}";
         string Directory = Path.GetDirectoryName(Command)!;
 
@@ -334,11 +335,12 @@ public class Installer
         } else if (OSInfo.IsWindows)
         {
             var log = Path.Combine(LogsPath, $"{ServiceId}.log");
+            System.IO.Directory.CreateDirectory(LogsPath);
             service = new WindowsServiceDescription()
             {
                 ServiceId = "aspnet-server",
-                DisplayName = "aspnet-server",
-                Description = "aspnet-server, a shared hosting server for ASP.NET Core.",
+                DisplayName = "ASP.NET Core Shared Server",
+                Description = "ASP.NET Core Shared Server, a shared hosting server for ASP.NET Core.",
                 Object = "LocalSystem",
                 Error = WindowsServiceErrorHandling.Ignore,
                 Executable = Command,

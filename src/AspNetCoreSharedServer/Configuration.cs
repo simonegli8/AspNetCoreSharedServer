@@ -1514,7 +1514,17 @@ public class Configuration
         var dir = Path.GetDirectoryName(ConfigPath)!;
         if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
 
-        watcher = new FileSystemWatcher(dir, "*.json");
+        watcher = new FileSystemWatcher(dir, "*.json")
+        {
+            IncludeSubdirectories = false,
+            NotifyFilter = NotifyFilters.FileName
+                  | NotifyFilters.DirectoryName
+                  | NotifyFilters.LastWrite
+                  | NotifyFilters.Size
+                  | NotifyFilters.Security,
+            EnableRaisingEvents = true
+        };
+
         watcher.Changed += (_, __) =>
         {
             reloadCts?.Cancel();
