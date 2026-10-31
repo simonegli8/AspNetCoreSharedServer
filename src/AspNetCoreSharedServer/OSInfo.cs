@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
@@ -20,13 +21,18 @@ public class OSInfo
 {
     public static bool IsMono => Type.GetType("Mono.Runtime") != null;
     public static bool IsCore => !(IsNetFX || IsNetNative);
+    [SupportedOSPlatformGuard("windows")]
     public static bool IsNetFX => RuntimeInformation.FrameworkDescription.StartsWith(".NET Framework", StringComparison.OrdinalIgnoreCase);
     public static bool IsNetNative => RuntimeInformation.FrameworkDescription.StartsWith(".NET Native", StringComparison.OrdinalIgnoreCase);
+    [SupportedOSPlatformGuard("windows")]
     public static bool IsWindows => RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows);
+    [SupportedOSPlatformGuard("linux")]
     public static bool IsLinux => RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Linux);
+    [SupportedOSPlatformGuard("macos")]
     public static bool IsMac => RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.OSX);
     public static bool IsArm => Architecture == Architecture.Arm64 || Architecture == Architecture.Arm;
     public static bool IsIntel => Architecture == Architecture.X64 || Architecture == Architecture.X86;
+    [SupportedOSPlatformGuard("windows")]
     public static bool IsNet48 => !IsMono && IsWindows && Regex.IsMatch(RuntimeInformation.FrameworkDescription, @"^\.NET Framework 4\.[8-9]");
     public static bool Is64 => Environment.Is64BitOperatingSystem;
     public static bool Is32 => !Is64;
@@ -35,14 +41,25 @@ public class OSInfo
     public static readonly System.Runtime.InteropServices.OSPlatform FreeBSD = System.Runtime.InteropServices.OSPlatform.Create("FREEBSD");
     public static readonly System.Runtime.InteropServices.OSPlatform NetBSD = System.Runtime.InteropServices.OSPlatform.Create("NETBSD");
 
+    [SupportedOSPlatformGuard("windows")]
+    [SupportedOSPlatformGuard("macos")]
+    [SupportedOSPlatformGuard("linux")]
+    [SupportedOSPlatformGuard("freebsd")]
+    [SupportedOSPlatformGuard("netbsd")]
     public static bool IsUnix => IsLinux || IsMac || IsFreeBSD || IsNetBSD;
+    [SupportedOSPlatformGuard("freebsd")]
     public static bool IsFreeBSD => RuntimeInformation.IsOSPlatform(FreeBSD);
+    [SupportedOSPlatformGuard("netbsd")]
     public static bool IsNetBSD => RuntimeInformation.IsOSPlatform(NetBSD);
+    [SupportedOSPlatformGuard("linux")]
     public static bool IsSystemd => IsLinux && Directory.Exists("/run/systemd/system");
 #if Server
+    [SupportedOSPlatformGuard("linux")]
     public static bool IsOpenRC => IsLinux && File.Exists("/etc/rc.conf") && Services.Shell.Standard.Find("rc-status") != null;
 #endif
+    [SupportedOSPlatformGuard("linux")]
     public static bool IsWSL => IsLinux && File.Exists("/proc/version") && File.ReadAllText("/proc/version").ToLower().Contains("microsoft");
+    [SupportedOSPlatformGuard("linux")]
     public static bool IsLinuxMusl
     {
         get

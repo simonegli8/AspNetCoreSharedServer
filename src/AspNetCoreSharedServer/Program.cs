@@ -63,6 +63,26 @@ public class Program
                     await Installer.Uninstall();
                     return;
                 }
+                if (args[0].Equals("create-user", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (!OperatingSystem.IsWindows())
+                    {
+                        Console.Error.WriteLine("create-user is for Windows. On Linux and macOS create the user with useradd or dscl.");
+                        Environment.ExitCode = 1;
+                    }
+                    else if (args.Length != 2)
+                    {
+                        Console.Error.WriteLine("Usage: aspnet-server create-user <name>");
+                        Environment.ExitCode = 1;
+                    }
+                    else
+                    {
+                        // Needs administrator rights.
+                        Console.WriteLine(WindowsAccounts.EnsureUser(args[1]) ?
+                            $"Created the local user {args[1]}." : $"The local user {args[1]} exists already.");
+                    }
+                    return;
+                }
                 if (args[0].Equals("start", StringComparison.OrdinalIgnoreCase))
                 {
                     if (args.Length == 1)
@@ -349,6 +369,7 @@ possible values for argument:
 - install: Installs the server as a system service on Systemd 
   Linux or OpenRC Linux or macOS.
 - uninstall: Uninstalls the system service.
+- create-user <name>: (Windows) Creates the local user that an application runs as. Needs administrator rights.
 - start: Starts the system service, or the application pool if argument2 is specified.
 - stop: Stops the system service, or the application pool if argument2 is specified.
 - restart: Restarts the system service, or the application pool if argument2 is specified.

@@ -49,6 +49,8 @@ internal sealed class ServerHost : IAsyncDisposable
         var directory = Directory.CreateTempSubdirectory("aspnet-server-e2e-").FullName;
         var configuration = new
         {
+            // The apps run as the account of the server, which starts them directly.
+            User = Environment.UserName,
             Applications = new[]
             {
                 new
@@ -68,7 +70,11 @@ internal sealed class ServerHost : IAsyncDisposable
             // timeout switches to IdleTimeoutOnLowMemory (1 minute by default), which would make the idle test depend on the machine.
             MemoryLowThreshold = 1.01,
         };
-        File.WriteAllText(Path.Combine(directory, "configuration.json"), JsonSerializer.Serialize(configuration));
+        var configurationFile = Path.Combine(directory, "configuration.json");
+        File.WriteAllText(configurationFile, JsonSerializer.Serialize(configuration));
+        // The server only loads a configuration.json that nobody but the administrators and SYSTEM can change (the user in the file is
+        // not known yet when it is read), so on Windows it has to run elevated to read it.
+        if (OperatingSystem.IsWindows()) WindowsFileSecurity.Protect(configurationFile, null);
 
         var info = new ProcessStartInfo("dotnet")
         {
@@ -79,6 +85,8 @@ internal sealed class ServerHost : IAsyncDisposable
             CreateNoWindow = true,
         };
         info.ArgumentList.Add(TestPaths.ServerDll);
+        // On Windows the server reads its configuration from %ProgramData%spnet-server, never from here, unless it is told where.
+        info.Environment[Configuration.ConfigDirectoryVariable] = directory;
         var process = new Process { StartInfo = info };
         var host = new ServerHost(port, directory, process);
         process.OutputDataReceived += (_, e) => host.Append(e.Data);

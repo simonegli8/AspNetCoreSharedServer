@@ -8,7 +8,7 @@ namespace AspNetCoreSharedServer.Tests;
 
 /// <summary>
 /// HTTP/3 through the real server, with the real test app behind it, and a real HTTP/3 client in front. Slow (about a minute each),
-/// so they only run when asked: set the environment variable ASPNETSERVER_E2E=1. They need Windows (see <see cref="ServerHost"/>),
+/// so they only run when asked: set the environment variable ASPNETSERVER_E2E=1. They need Windows, elevated (see <see cref="ServerHost"/>),
 /// QUIC support in the OS, and the ASP.NET Core HTTPS development certificate (<c>dotnet dev-certs https</c>).
 /// </summary>
 [Trait("Category", "EndToEnd")]
@@ -17,7 +17,8 @@ public class EndToEndHttp3Tests
     static void RequirePrerequisites()
     {
         Skip.IfNot(Environment.GetEnvironmentVariable("ASPNETSERVER_E2E") == "1", "Opt-in: set ASPNETSERVER_E2E=1 to run the end-to-end tests.");
-        Skip.IfNot(OperatingSystem.IsWindows(), "Only on Windows does the server read its configuration from the current directory; elsewhere it uses /etc/aspnet-server, which a test must not touch.");
+        Skip.IfNot(OperatingSystem.IsWindows(), "Only on Windows can the test tell the server where its configuration is (ASPNETSERVER_CONFIG_DIR); elsewhere it uses /etc/aspnet-server, which a test must not touch.");
+        Skip.IfNot(WindowsFileSecurity.IsAdministrator(), "The server only loads a configuration.json that administrators alone can change, so it has to run elevated.");
         Skip.IfNot(QuicConnection.IsSupported, "QUIC is not available on this machine.");
         Skip.IfNot(DevelopmentCertificateExists(), "There is no ASP.NET Core HTTPS development certificate (run: dotnet dev-certs https).");
         Skip.IfNot(File.Exists(TestPaths.ServerDll) && File.Exists(TestPaths.TestAppDll), "The server or the test app is not built.");

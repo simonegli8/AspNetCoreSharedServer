@@ -39,6 +39,8 @@
         <!--<PackageReference Include="Mono.Posix" Version="7.1.0-final.1.21458.1" />
 		<PackageReference Include="Mono.Unix" Version="7.1.0-final.1.21458.1" />-->
 		<PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
+		<!-- ACLs of files and folders, and the Windows identities (SIDs); built into .NET, a package for netstandard2.0 -->
+		<PackageReference Include="System.IO.FileSystem.AccessControl" Version="5.0.0" />
         <PackageReference Include="EstrellasDeEsperanza.AsyncLock" Version="4.1.6" />
         <!--<ProjectReference Include="..\..\..\AsyncLock\AsyncLock\AsyncLock.csproj" />-->
     </ItemGroup>
@@ -52,6 +54,12 @@
         </Compile>
 		<Compile Include="..\AspNetCoreSharedServer\Unix.cs">
 			<Link>Unix.cs</Link>
+		</Compile>
+		<Compile Include="..\AspNetCoreSharedServer\WindowsAccounts.cs">
+			<Link>WindowsAccounts.cs</Link>
+		</Compile>
+		<Compile Include="..\AspNetCoreSharedServer\WindowsFileSecurity.cs">
+			<Link>WindowsFileSecurity.cs</Link>
 		</Compile>
     </ItemGroup>
 

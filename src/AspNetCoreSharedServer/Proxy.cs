@@ -156,9 +156,6 @@ public class Proxy
 
         await Configuration.Current.SaveIfDirtyAsync(true);
 
-
-        bool exception = false;
-
         try
         {
             do
@@ -262,14 +259,12 @@ public class Proxy
         catch (SocketException ex)
         {
             Logger.LogError(ex, $"{Application.Name}: Socket error while starting server");
-            exception = true;
             await Application.SetStatusAsync(Status.Error, $"Socket error while starting server {ex}", true);
             throw;
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, $"{Application.Name}: Error while starting server");
-            exception = true;
             await Application.SetStatusAsync(Status.Error, $"Error while starting server {ex}", true);
             throw;
         }

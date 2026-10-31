@@ -87,6 +87,8 @@ public class Server
     public const string LoopbackTextV4 = "127.0.0.1";
     public const string LoopbackTextV6 = "[::1]";
     Process ServerProcess = new Process();
+    /// <summary>The logon and job of an app that runs as another local user on Windows. Disposing it ends the app.</summary>
+    WindowsLaunch? windowsLaunch;
     //public CancellationTokenSource Cancel = new CancellationTokenSource();
 
     public virtual string? Find(string cmd) => Services.Shell.Standard.Find(cmd);
@@ -159,7 +161,33 @@ public class Server
             programArguments = arguments ?? "";
         }
 
-        if (!OSInfo.IsWindows && Unix.IsRoot && !string.IsNullOrEmpty(user))
+        string? windowsCommandLine = null;
+        if (OSInfo.IsWindows && !string.IsNullOrEmpty(user) && !WindowsLaunch.IsCurrentUser(user))
+        {
+            // Another local user: log it on with S4U and start the app with that token, the way sudo does on Linux and macOS.
+            if (!WindowsAccounts.UserExists(user))
+            {
+                return await FailStartAsync($"User {user} not found.", $"User {user} not found.");
+            }
+            if (!string.IsNullOrEmpty(group))
+            {
+                if (!WindowsAccounts.GroupExists(group))
+                {
+                    return await FailStartAsync($"Group {group} not found.", $"Group {group} not found.");
+                }
+                // Windows has no primary group to switch to, so the group only decides who may run the app.
+                if (!WindowsAccounts.IsUserInGroup(user, group))
+                {
+                    return await FailStartAsync($"User {user} is not a member of group {group}.", $"User {user} is not a member of group {group}.");
+                }
+            }
+            if (WindowsLaunch.MissingPrivileges() is { } missingPrivileges)
+            {
+                return await FailStartAsync(missingPrivileges, "Missing privileges to start the app as another user.");
+            }
+            windowsCommandLine = $"{QuoteArg(program)}{(programArguments.Length > 0 ? " " + programArguments : "")}";
+        }
+        else if (!OSInfo.IsWindows && Unix.IsRoot && !string.IsNullOrEmpty(user))
         {
             // A typo in the user or group would otherwise show up as sudo failing and the app exiting at once.
             if (!Unix.UserExists(user))
@@ -185,24 +213,45 @@ public class Server
             foreach (var variable in variables) info.Environment[variable.Key] = variable.Value;
         }
 
-        info.CreateNoWindow = false;
+        // Every app gets a console of its own (that nobody sees). On Windows apps that share the console of the server would all get the
+        // Ctrl+C that asks one of them to shut down. Output is redirected anyway, so no window is needed.
+        info.CreateNoWindow = true;
         Logger.LogInformation($"Starting {Application.Name} on {urls}");
         info.RedirectStandardError = info.RedirectStandardOutput = true;
         info.RedirectStandardInput = true;
         info.UseShellExecute = false;
         info.WindowStyle = ProcessWindowStyle.Normal;
         Logger.LogInformation($"{(!string.IsNullOrEmpty(user) ? user : "")}>{info.FileName} {info.Arguments}");
-        ServerProcess = new Process();
-        ServerProcess.StartInfo = info;
-        ServerProcess.EnableRaisingEvents = true;
-        ServerProcess.Exited += async (sender, args) => await OnExitAsync();
-        ServerProcess.OutputDataReceived += async (_, args) => await OnOutputAsync(args.Data, Console.Out);
-        ServerProcess.ErrorDataReceived += async (_, args) => await OnOutputAsync(args.Data, Console.Error);
+        if (windowsCommandLine != null && OperatingSystem.IsWindows())
+        {
+            try
+            {
+                SignalSender.StartWithCtrlCEnabled(() => windowsLaunch = WindowsLaunch.Start(user!, windowsCommandLine, info.WorkingDirectory, variables,
+                    line => _ = OnOutputAsync(line, Console.Out), line => _ = OnOutputAsync(line, Console.Error)));
+            }
+            catch (Exception ex)
+            {
+                return await FailStartAsync($"Could not start {Application.Name} as {user}: {ex.Message}", "Could not start the app as another user.");
+            }
+            ServerProcess = windowsLaunch!.Process;
+            ServerProcess.EnableRaisingEvents = true;
+            ServerProcess.Exited += async (sender, args) => await OnExitAsync();
+            windowsLaunch.Resume(); // the app was created suspended, so that no exit can be missed
+        }
+        else
+        {
+            ServerProcess = new Process();
+            ServerProcess.StartInfo = info;
+            ServerProcess.EnableRaisingEvents = true;
+            ServerProcess.Exited += async (sender, args) => await OnExitAsync();
+            ServerProcess.OutputDataReceived += async (_, args) => await OnOutputAsync(args.Data, Console.Out);
+            ServerProcess.ErrorDataReceived += async (_, args) => await OnOutputAsync(args.Data, Console.Error);
 
-        ServerProcess.Start();
+            SignalSender.StartWithCtrlCEnabled(() => ServerProcess.Start());
 
-        ServerProcess.BeginErrorReadLine();
-        ServerProcess.BeginOutputReadLine();
+            ServerProcess.BeginErrorReadLine();
+            ServerProcess.BeginOutputReadLine();
+        }
 
         Touch();
         isRunning = true;
@@ -374,6 +423,7 @@ public class Server
     {
         try
         {
+            windowsLaunch?.Dispose(); // the logon and the job of an app that ran as another Windows user
             bool fail = false;
 
             try

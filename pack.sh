@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-PackageVersion="4.0.2"
+PackageVersion="4.1.0"
 Configuration="Release"
 
 rm -f nupkg/*.nupkg

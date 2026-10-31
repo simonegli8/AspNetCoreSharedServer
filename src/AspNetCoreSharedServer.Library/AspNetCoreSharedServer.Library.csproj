@@ -57,6 +57,15 @@
         <Compile Include="../AspNetCoreSharedServer/SignalSender.cs">
             <Link>SignalSender.cs</Link>
         </Compile>
+        <Compile Include="../AspNetCoreSharedServer/WindowsAccounts.cs">
+            <Link>WindowsAccounts.cs</Link>
+        </Compile>
+        <Compile Include="../AspNetCoreSharedServer/WindowsFileSecurity.cs">
+            <Link>WindowsFileSecurity.cs</Link>
+        </Compile>
+        <Compile Include="../AspNetCoreSharedServer/WindowsLaunch.cs">
+            <Link>WindowsLaunch.cs</Link>
+        </Compile>
         <Compile Include="../AspNetCoreSharedServer/Worker.cs">
             <Link>Worker.cs</Link>
         </Compile>
@@ -71,6 +80,9 @@
         </Compile>
         <Compile Include="../AspNetCoreSharedServer/Installer/ServiceControllers/SystemdServiceController.cs">
             <Link>Installer\ServiceControllers\SystemdServiceController.cs</Link>
+        </Compile>
+        <Compile Include="../AspNetCoreSharedServer/Installer/ServiceControllers/WindowsServiceController.cs">
+            <Link>Installer\ServiceControllers\WindowsServiceController.cs</Link>
         </Compile>
         <Compile Include="../AspNetCoreSharedServer/Installer/Installer.cs">
             <Link>Installer\Installer.cs</Link>
@@ -97,7 +109,7 @@
 
     <ItemGroup>
         <PackageReference Include="System.Management" Version="10.0.0" />
-        <PackageReference Include="MedallionShell" Version="1.6.2" />
+        <!--<PackageReference Include="MedallionShell" Version="1.6.2" />-->
         <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.0" />
         <PackageReference Include="Mono.Cecil" Version="0.11.6" />
 		<!--<PackageReference Include="Mono.Posix" Version="7.1.0-final.1.21458.1" />
@@ -107,5 +119,6 @@
         <PackageReference Include="plist-cil" Version="2.3.1" />
         <PackageReference Include="SyslogNet.ClientStandard" Version="0.3.4" />
         <PackageReference Include="Hardware.Info" Version="110.0.0.1" />
+        <PackageReference Include="System.ServiceProcess.ServiceController" Version="10.0.0" />
     </ItemGroup>
 </Project>

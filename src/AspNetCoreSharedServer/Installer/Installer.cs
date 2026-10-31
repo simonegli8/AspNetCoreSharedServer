@@ -134,7 +134,8 @@ public class Installer
                 if (OSInfo.IsSystemd) serviceController = new SystemdServiceController();
                 else if (OSInfo.IsOpenRC) serviceController = new OpenRCServiceController();
                 else if (OSInfo.IsMac) serviceController = new LaunchdServiceController();
-                else throw new NotSupportedException("Only Systemd, OpenRC & Launchd service controllers are supported.");
+                else if (OSInfo.IsWindows) serviceController = new WindowsServiceController();
+                else throw new NotSupportedException("Only Systemd, OpenRC, Launchd & Windows service controllers are supported.");
             }
             return serviceController;
         }
@@ -329,6 +330,20 @@ public class Installer
                 StandardOutPath = log,
                 StandardErrorPath = log,
                 StartOnMount = true
+            };
+        } else if (OSInfo.IsWindows)
+        {
+            var log = Path.Combine(LogsPath, $"{ServiceId}.log");
+            service = new WindowsServiceDescription()
+            {
+                ServiceId = "aspnet-server",
+                DisplayName = "aspnet-server",
+                Description = "aspnet-server, a shared hosting server for ASP.NET Core.",
+                Object = "LocalSystem",
+                Error = WindowsServiceErrorHandling.Ignore,
+                Executable = Command,
+                Start = WindowsServiceStartMode.Auto,
+                Type = WindowsServiceType.Own,
             };
         }
         else throw new PlatformNotSupportedException("Only Systemd, OpenRC and Launchd are supported.");

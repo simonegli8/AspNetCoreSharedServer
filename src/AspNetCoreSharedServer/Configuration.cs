@@ -214,13 +214,22 @@ public class Configuration
         return port;
     }
 
+    /// <summary>
+    /// The folder of the configuration on Windows: <c>%ProgramData%spnet-server</c>, or the folder in the environment variable
+    /// <c>ASPNETSERVER_CONFIG_DIR</c>, which the tests use so that they never touch the real configuration.
+    /// </summary>
+    public const string ConfigDirectoryVariable = "ASPNETSERVER_CONFIG_DIR";
+    static string WindowsConfigDirectory =>
+        Environment.GetEnvironmentVariable(ConfigDirectoryVariable) is { Length: > 0 } directory ? directory :
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "aspnet-server");
+
     [JsonIgnore]
     public string ConfigPathOld => OSInfo.IsWindows ?
-        Path.Combine(Environment.CurrentDirectory, "applications.json") :
+        Path.Combine(WindowsConfigDirectory, "applications.json") :
         "/etc/aspnetcore/applications.json";
     [JsonIgnore]
     public string ConfigPath => OSInfo.IsWindows ?
-        Path.Combine(Environment.CurrentDirectory, "configuration.json") :
+        Path.Combine(WindowsConfigDirectory, "configuration.json") :
         "/etc/aspnet-server/configuration.json";
 
 #if Server
@@ -279,6 +288,27 @@ public class Configuration
     public static IDisposable Lock(CancellationToken cancel = default) =>
         MutexLock.Lock(CancellationTokenSource.CreateLinkedTokenSource(cancel,
             new CancellationTokenSource(LockTimeout).Token).Token);
+    /// <summary>
+    /// True if the configuration.json can be changed by someone who may not: on Unix when its owner is neither root nor <paramref name="user"/>
+    /// or when group or other can write it, on Windows when its owner or the permissions of the file allow somebody else than
+    /// <paramref name="user"/>, the administrators and SYSTEM to change it.
+    /// </summary>
+    bool ConfigFileIsInsecure(string? user)
+    {
+        if (OSInfo.IsWindows) return WindowsFileSecurity.Check(ConfigPath, user) != null;
+        var fileMode = Unix.GetFilePermissions(ConfigPath);
+        var owner = Unix.GetOwnerAndGroup(ConfigPath).Owner;
+        return owner != user && owner != "root" ||
+            fileMode.HasFlag(UnixFileMode.GroupWrite) ||
+            fileMode.HasFlag(UnixFileMode.OtherWrite);
+    }
+
+    /// <summary>The error that is shown when <see cref="ConfigFileIsInsecure"/> is true.</summary>
+    string ConfigFileSecurityError(string? user) => OSInfo.IsWindows ?
+        $"For security reasons, the configuration.json must be changeable only by administrators{(user != null ? $" and {user}" : "")}" +
+            $"{(WindowsFileSecurity.Check(ConfigPath, user) is { } problem ? $" ({problem})" : "")}." :
+        $"For security reasons, the configuration.json must be owned by root {(user != null ? $"or {user} " : "")}and must not have group & other write permission set.";
+
     internal async Task<Configuration?> LoadConfigAsync(bool loadApps = true)
     {
         // import old config path /etc/aspnetcore if it exists to /etc/aspnet-server
@@ -289,9 +319,11 @@ public class Configuration
             {
                 Directory.CreateDirectory(path);
                 if (!OSInfo.IsWindows) Unix.SetFilePermissions(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+                else if (WindowsFileSecurity.IsAdministrator()) WindowsFileSecurity.ProtectDirectory(path, AdminGroup);
             }
             File.Copy(ConfigPathOld, ConfigPath, true);
             if (!OSInfo.IsWindows) Unix.SetFilePermissions(ConfigPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            else if (WindowsFileSecurity.IsAdministrator()) WindowsFileSecurity.Protect(ConfigPath, null);
 
             Directory.Delete(Path.GetDirectoryName(ConfigPathOld)!, true);
         }
@@ -302,20 +334,18 @@ public class Configuration
             // Read the configuration file if it exists.
             try
             {
-                if (!OSInfo.IsWindows)
                 {
-                    var fileMode = Unix.GetFilePermissions(ConfigPath);
-                    var owner = Unix.GetOwnerAndGroup(ConfigPath).Owner;
-                    if (owner != User && owner != "root" ||
-                        fileMode.HasFlag(UnixFileMode.GroupWrite) ||
-                        fileMode.HasFlag(UnixFileMode.OtherWrite))
+                    if (ConfigFileIsInsecure(User))
                     {
                         var txterror = File.ReadAllText(ConfigPath);
                         try
                         {
                             var configerror = JsonConvert.DeserializeObject<Configuration>(txterror,
                                 new Newtonsoft.Json.Converters.VersionConverter(), new StringEnumConverter());
-                            configerror!.Error = $"For security reasons, the configuration.json must be owned by root {(User != null ? $"or {User} " : "")}and must not have group & other write permission set.";
+                            configerror!.Error = ConfigFileSecurityError(User);
+#if Server
+                            Logger?.LogError(configerror.Error);
+#endif
                             configerror.Offline = true;
                             configerror.RunningUser = User;
                             configerror.Save(true, false);
@@ -393,7 +423,11 @@ public class Configuration
                             if (app.Environment == null) app.Environment = new Dictionary<string, string>();
                             app.IsSeparateFile = true;
 #if Server
-                            if (!OSInfo.IsWindows)
+                            if (OSInfo.IsWindows)
+                            {
+                                if (CheckWindowsAppFile(app, config, file)) hasError = true;
+                            }
+                            else
                             {
                                 var fileMode = Unix.GetFilePermissions(file);
                                 var owner = Unix.GetOwnerAndGroup(file).Owner;
@@ -472,9 +506,11 @@ public class Configuration
             {
                 Directory.CreateDirectory(path);
                 if (!OSInfo.IsWindows) Unix.SetFilePermissions(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+                else if (WindowsFileSecurity.IsAdministrator()) WindowsFileSecurity.ProtectDirectory(path, AdminGroup);
             }
             File.Copy(ConfigPathOld, ConfigPath, true);
             if (!OSInfo.IsWindows) Unix.SetFilePermissions(ConfigPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            else if (WindowsFileSecurity.IsAdministrator()) WindowsFileSecurity.Protect(ConfigPath, null);
 
             Directory.Delete(Path.GetDirectoryName(ConfigPathOld)!, true);
         }
@@ -485,20 +521,18 @@ public class Configuration
             // Read the configuration file if it exists.
             try
             {
-                if (!OSInfo.IsWindows)
                 {
-                    var fileMode = Unix.GetFilePermissions(ConfigPath);
-                    var owner = Unix.GetOwnerAndGroup(ConfigPath).Owner;
-                    if (owner != User && owner != "root" ||
-                        fileMode.HasFlag(UnixFileMode.GroupWrite) ||
-                        fileMode.HasFlag(UnixFileMode.OtherWrite))
+                    if (ConfigFileIsInsecure(User))
                     {
                         var txterror = File.ReadAllText(ConfigPath);
                         try
                         {
                             var configerror = JsonConvert.DeserializeObject<Configuration>(txterror,
                                 new Newtonsoft.Json.Converters.VersionConverter(), new StringEnumConverter());
-                            configerror!.Error = $"For security reasons, the configuration.json must be owned by root {(User != null ? $"or {User} " : "")}and must not have group & other write permission set.";
+                            configerror!.Error = ConfigFileSecurityError(User);
+#if Server
+                            Logger?.LogError(configerror.Error);
+#endif
                             configerror.Offline = true;
                             configerror.RunningUser = User;
                             configerror.Save(true, false);
@@ -576,7 +610,11 @@ public class Configuration
                             if (app.Environment == null) app.Environment = new Dictionary<string, string>();
                             app.IsSeparateFile = true;
 #if Server
-                            if (!OSInfo.IsWindows)
+                            if (OSInfo.IsWindows)
+                            {
+                                if (CheckWindowsAppFile(app, config, file)) hasError = true;
+                            }
+                            else
                             {
                                 var fileMode = Unix.GetFilePermissions(file);
                                 var owner = Unix.GetOwnerAndGroup(file).Owner;
@@ -647,6 +685,36 @@ public class Configuration
     }
 
     /// <summary>
+    /// Windows: the same check as on Unix for the json file of an app. The file may only be changed by the user that the app runs as and
+    /// by administrators (the counterpart of "owned by the user or root, not writable by group or other"), and a group that the user does
+    /// not belong to may only come from a file or a configuration.json that administrators own. Takes the app offline and returns true
+    /// if something is wrong.
+    /// </summary>
+    bool CheckWindowsAppFile(Application app, Configuration config, string file)
+    {
+        if (!OSInfo.IsWindows) return false;
+        var user = app.User ?? config.User;
+        var problem = WindowsFileSecurity.Check(file, user);
+        if (problem != null)
+        {
+            app.Offline = true;
+            app.Status = Status.Error;
+            app.Error = $"The app json file {Path.GetFileName(file)} is not secure: {problem}. It must be changeable only by " +
+                $"{(string.IsNullOrEmpty(user) ? "administrators" : $"the app's User {user} and administrators")}.";
+            return true;
+        }
+        if (!WindowsFileSecurity.IsOwnedByAdministrators(file) &&
+            (app.Group != config.Group || !WindowsFileSecurity.IsOwnedByAdministrators(ConfigPath)) &&
+            GroupError(app.Group, user) is { } groupError)
+        {
+            app.Offline = true;
+            app.Status = Status.Error;
+            app.Error = groupError;
+            return true;
+        }
+        return false;
+    }
+
     /// Returns an error message if <paramref name="group"/> may not be used for an app run as <paramref name="user"/>.
     /// The group is applied with sudo as root, so a file that is not owned by root may only name groups the user
     /// belongs to; otherwise its owner could run their app with the privileges of any group (e.g. root or sudo).
@@ -655,6 +723,8 @@ public class Configuration
     {
         // Without a user the app is not started under another account, so the group is not applied.
         if (string.IsNullOrEmpty(group) || string.IsNullOrEmpty(user)) return null;
+        // On Windows the group is not applied either; the user has to be a member of it.
+        if (OSInfo.IsWindows && !WindowsAccounts.IsUserInGroup(user!, group!)) return $"Group '{group}' is not allowed: only a group that user '{user}' belongs to can be set here. Only an administrator can set other groups.";
         if (OSInfo.IsWindows || Unix.IsUserInGroup(user!, group!)) return null;
         return $"Group '{group}' is not allowed: only a group that user '{user}' belongs to can be set here. Only root can set other groups.";
     }
@@ -903,11 +973,12 @@ public class Configuration
 
 #if Server
                 // If not runnig as root, forbid User & Group settings
-                if (!OSInfo.IsWindows && !Unix.IsRoot)
+                if (!OSInfo.IsWindows && !Unix.IsRoot ||
+                    OSInfo.IsWindows && !WindowsFileSecurity.IsLocalSystem())
                 {
                     if (newApps.Any(app => !string.IsNullOrEmpty(app.User) || !string.IsNullOrEmpty(app.Group)))
                     {
-                        Logger?.LogError("Cannot set User or Group of Application when not running AspNetCoreSharedServer as root.");
+                        Logger?.LogError($"Cannot set User or Group of Application when not running AspNetCoreSharedServer as {(OSInfo.IsWindows ? "SYSTEM" : "root")}.");
                         return;
                     }
                 }
@@ -1080,6 +1151,10 @@ public class Configuration
                 else throw new NotSupportedException("Either only root or only admin must be allowed to create applications.");
                 if (Unix.IsRoot) Unix.SetOwnerAndGroup(dir, "root", AdminGroup);
             }
+            else if (WindowsFileSecurity.IsAdministrator())
+            {
+                WindowsFileSecurity.ProtectDirectory(dir, AllowOnlyAdminsToCreateApplications ? AdminGroup : null);
+            }
         }
 
         if (Applications == null) Applications = new Applications();
@@ -1103,9 +1178,15 @@ public class Configuration
                 catch { }
                 Unix.SetFilePermissions(ConfigPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
             }
+            else if (WindowsFileSecurity.IsAdministrator()) WindowsFileSecurity.Protect(ConfigPath, null);
             Error = null;
         }
-        else if (!OSInfo.IsWindows)
+        else if (OSInfo.IsWindows)
+        {
+            Error = WindowsFileSecurity.Check(ConfigPath, RunningUser) is { } configProblem ?
+                $"For security reasons, the configuration.json must be changeable only by administrators{(!string.IsNullOrEmpty(RunningUser) ? $" and {RunningUser}" : "")} ({configProblem})." : null;
+        }
+        else
         {
             var fileMode = Unix.GetFilePermissions(ConfigPath);
             var owner = Unix.GetOwnerAndGroup(ConfigPath).Owner;
@@ -1135,6 +1216,16 @@ public class Configuration
             if (!File.Exists(file)) File.WriteAllText(file, ""); // Write empty file, in order to set permissions first, before writing content
             else
             {
+                if (OSInfo.IsWindows &&
+                    WindowsFileSecurity.Check(file, extapp.User ?? RunningUser) is { } windowsProblem)
+                {
+                    // File can be changed by someone else than the user of the app and the administrators
+                    fileIsInsecure = true;
+                    var user = extapp.User ?? RunningUser;
+                    extapp.Error = $"For security reasons, the {extapp.Name}.json must be changeable only by {(string.IsNullOrEmpty(user) ? "administrators" : $"{user} and administrators")} ({windowsProblem}).";
+                    extapp.Offline = true;
+                    extapp.Status = Status.Error;
+                }
                 if (!OSInfo.IsWindows)
                 {
                     var fileMode = Unix.GetFilePermissions(file);
@@ -1168,6 +1259,11 @@ public class Configuration
                 {
                     Unix.SetFilePermissions(file, UnixFileMode.UserRead | UnixFileMode.UserWrite);
                 }
+                catch { }
+            }
+            if (OSInfo.IsWindows && !fileIsInsecure && WindowsFileSecurity.IsAdministrator())
+            {
+                try { WindowsFileSecurity.Protect(file, extapp.User ?? RunningUser); }
                 catch { }
             }
             File.WriteAllText(file, extjson); // Now after setting permissions, write file.
@@ -1204,6 +1300,16 @@ public class Configuration
                 }
             }
             else throw new NotSupportedException("Either only root or only admins must be allowed to create applications.");
+        }
+        else if (WindowsFileSecurity.IsAdministrator())
+        {
+            // The counterpart of owner root and mode 700/600: only administrators (and the admin group, for the folder) may change them.
+            try
+            {
+                WindowsFileSecurity.ProtectDirectory(Path.GetDirectoryName(ConfigPath)!, AllowOnlyAdminsToCreateApplications ? AdminGroup : null);
+                if (Error == null) WindowsFileSecurity.Protect(ConfigPath, null);
+            }
+            catch { }
         }
         foreach (var app in Applications) app.Dirty = false;
     }

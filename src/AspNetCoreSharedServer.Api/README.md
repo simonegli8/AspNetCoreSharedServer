@@ -1,10 +1,10 @@
 # AspNetCoreSharedServer
-
 [![NuGet](https://img.shields.io/nuget/v/AspNetCoreSharedServer.svg)](https://www.nuget.org/packages/AspNetCoreSharedServer)
 
-An ASP.NET Core server for Linux & macOS that starts Kestrel on demand and stops it when idle. For use when hosting
-ASP.NET Core in a shared hosting environment behind a proxy like Apache or Nginx, where Kestrel should not 
-run as a permanent Systemd service using resources, but should be started on demand and shutdown when idle. 
+An ASP.NET Core server for Linux, macOS & Windows that starts Kestrel on demand and stops it when idle. For use when hosting
+ASP.NET Core in a shared hosting environment behind a proxy like Apache or Nginx, or as an alternative to IIS when serving
+net.tcp endpoints, where Kestrel should not run as a permanent system service using resources, but should be started on
+demand and shutdown when idle. 
 
 # Usage
 First install AspNetCoreSharedServer using the comman `sudo dotnet tool install AspNetCoreSharedServer --global`.
@@ -16,9 +16,10 @@ To show help on usage, execute `sudo aspnet-server -?` or `sudo aspnet-server -h
 
 
 ## Configure AspNetCoreSharedServer
-All the configuration is stored in `/etc/aspnet-server/configuration.json` and in json files named after the application
-name in `/etc/aspnet-server`. When the configuration is changed, changes are applied on the fly. The
-`configuration.json` file is defined as follows:
+All the configuration is stored in `/etc/aspnet-server/configuration.json`, or in
+`%ProgramData%\aspnet-server\configuration.json` on Windows, and in json files named after the application
+name in `/etc/aspnet-server` or `%ProgramData%\aspnet-server`. When the configuration is changed, changes are
+applied on the fly. The `configuration.json` file is defined as follows:
 ```json
 {
   "IdleTimeout": 300,
@@ -143,7 +144,7 @@ Things to know:
 - HTTP/3 traffic counts as activity for `IdleTimeout`.
 - The PROXY protocol only exists for TCP. Over HTTP/3 the application would see `127.0.0.1` as the client, so HTTP/3 is switched
   off for applications that have `EnableProxyHeader` or `EnableProxyV2Header` set.
-- Every client gets its own session, which ends after 60 seconds without traffic. At most 4096 sessions are kept, and a new
+- Every HTTP/3 client gets its own session, which ends after 60 seconds without traffic. At most 4096 sessions are kept, and a new
   session only starts with a datagram of at least 1200 bytes, the size of a QUIC client's first packet.
 - Set `"EnableHttp3": false` in `configuration.json`, or for a single application, to switch HTTP/3 off.
 

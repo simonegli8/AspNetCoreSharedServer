@@ -1,9 +1,10 @@
 # AspNetCoreSharedServer
 [![NuGet](https://img.shields.io/nuget/v/AspNetCoreSharedServer.svg)](https://www.nuget.org/packages/AspNetCoreSharedServer)
 
-An ASP.NET Core server for Linux & macOS that starts Kestrel on demand and stops it when idle. For use when hosting
-ASP.NET Core in a shared hosting environment behind a proxy like Apache or Nginx, where Kestrel should not 
-run as a permanent Systemd service using resources, but should be started on demand and shutdown when idle. 
+An ASP.NET Core server for Linux, macOS & Windows that starts Kestrel on demand and stops it when idle. For use when hosting
+ASP.NET Core in a shared hosting environment behind a proxy like Apache or Nginx, or as an alternative to IIS when serving
+net.tcp endpoints, where Kestrel should not run as a permanent system service using resources, but should be started on
+demand and shutdown when idle. 
 
 # Usage
 First install AspNetCoreSharedServer using the comman `sudo dotnet tool install AspNetCoreSharedServer --global`.
@@ -15,9 +16,10 @@ To show help on usage, execute `sudo aspnet-server -?` or `sudo aspnet-server -h
 
 
 ## Configure AspNetCoreSharedServer
-All the configuration is stored in `/etc/aspnet-server/configuration.json` and in json files named after the application
-name in `/etc/aspnet-server`. When the configuration is changed, changes are applied on the fly. The
-`configuration.json` file is defined as follows:
+All the configuration is stored in `/etc/aspnet-server/configuration.json`, or in
+`%ProgramData%\aspnet-server\configuration.json` on Windows, and in json files named after the application
+name in `/etc/aspnet-server` or `%ProgramData%\aspnet-server`. When the configuration is changed, changes are
+applied on the fly. The `configuration.json` file is defined as follows:
 ```json
 {
   "IdleTimeout": 300,
@@ -153,7 +155,7 @@ Things to know:
 - HTTP/3 traffic counts as activity for `IdleTimeout`.
 - The PROXY protocol only exists for TCP. Over HTTP/3 the application would see `127.0.0.1` as the client, so HTTP/3 is switched
   off for applications that have `EnableProxyHeader` or `EnableProxyV2Header` set.
-- Every client gets its own session, which ends after 60 seconds without traffic. At most 4096 sessions are kept, and a new
+- Every HTTP/3 client gets its own session, which ends after 60 seconds without traffic. At most 4096 sessions are kept, and a new
   session only starts with a datagram of at least 1200 bytes, the size of a QUIC client's first packet.
 - Set `"EnableHttp3": false` in `configuration.json`, or for a single application, to switch HTTP/3 off.
 
@@ -184,6 +186,41 @@ app.UseAspNetCoreSharedServer();               // sends the Alt-Svc header, see 
 - HTTP/3 is switched off for an application that gets a PROXY header, because the PROXY protocol only exists for TCP.
 
 # API Library
+### Windows: one local user per app
+
+On Windows an app that has a `User` (per application or in `configuration.json`) runs as that **local user**, the counterpart of the
+`sudo -u` launch on Linux and macOS. The server logs the user on with S4U (`LsaLogonUser`, "service for user"), which needs no password,
+and starts the app with that token. The app is put in a job object, so it ends with the server.
+
+- The server has to run as **LocalSystem**, or as an account that holds the privileges *Act as part of the operating system*
+  (`SeTcbPrivilege`), *Replace a process level token* and *Adjust memory quotas for a process*. Such an account can become any local
+  user, so it is as powerful as LocalSystem. Without them the app does not start, and the status says which privileges are missing.
+- The user must exist. The server never creates accounts by itself; run `aspnet-server create-user <name>` as administrator. The account gets a random password that nobody knows, the right to log on as a batch job (what S4U needs) and the
+  denial of every interactive, remote desktop and network logon, so nobody can log on as it.
+- Windows has no primary group to switch to, so `Group` only decides **who may run the app**: the user has to be a member of it
+  (directly or through another group), otherwise the app does not start.
+- The token of an S4U logon has no network credentials: the app cannot reach network shares as that user.
+- Give each app's folder to its own user (and read access to the server's account); that is what keeps the apps apart.
+- The app's own json file (`/etc/aspnet-server/<Name>.json` on Linux, `<Name>.json` next to `configuration.json` on Windows) may only be
+  changed by the app's `User` and by administrators. On Linux and macOS that is "owned by the user or root, and not writable by group or
+  other"; on Windows it is read from the file's permissions: the owner must be the user, an administrator or SYSTEM, and no other account
+  or group may have a right to write, append, delete or change the permissions of the file (read access for others is fine). An app whose
+  file does not meet that is taken offline with an error, and the server sets the permissions itself when it saves the file: no inherited
+  rules, full control for SYSTEM and administrators, read and write for the user. A file that the `AspNetCoreSharedServer.Api` created is
+  checked the first time the server loads it.
+- The same goes for `configuration.json` and its folder, which on Linux and macOS belong to root. On Windows the folder gets full control
+  for SYSTEM and administrators only (plus modify rights for a local group `aspnet-server`, if it exists, for the people who may create
+  applications), and `configuration.json` is owned by the administrators and can only be changed by SYSTEM and administrators. The server
+  sets this when it saves, if it runs as an administrator or SYSTEM (anybody else would lock themselves out), and when it loads a
+  `configuration.json` that someone else can change it refuses it and writes the error into it, like on Linux. `AspNetCoreSharedServer.Api`
+  does the same on Windows when it saves.
+- On Windows the configuration lives in `%ProgramData%spnet-server`. The environment variable `ASPNETSERVER_CONFIG_DIR` names another
+  folder (the tests use it, so that they never touch the real one).
+- A user of a domain is not supported, only local users (`name`, `.
+ame` or `MACHINE
+ame`).
+- When `User` is the account that the server runs as, or empty, the app is started directly, as before.
+
 You can also manage the configuration.json file programmatically by using AspNetCoreSharedServer.Api:
 Import AspNetCoreSharedServer.Api via nuget to your project.
 
