@@ -1,4 +1,4 @@
-﻿using System.Collections.ObjectModel;
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Linq;
@@ -215,22 +215,65 @@ public class Configuration
     }
 
     /// <summary>
-    /// The folder of the configuration on Windows: <c>%ProgramData%spnet-server</c>, or the folder in the environment variable
-    /// <c>ASPNETSERVER_CONFIG_DIR</c>, which the tests use so that they never touch the real configuration.
+    /// The command line option that moves the configuration folder, which is <c>/etc/aspnet-server</c> on Linux and macOS and
+    /// <c>%ProgramData%\aspnet-server</c> on Windows: <c>aspnet-server --config-dir &lt;folder&gt;</c>, or <c>--config-dir=&lt;folder&gt;</c>. The
+    /// tests use it, so that they never touch the real configuration. It is deliberately not an environment variable: the environment of
+    /// a process that runs as root or SYSTEM is handed down by whatever started it (sudo, a service manager, a shell profile), while a
+    /// command line is what the person who starts the server writes. A service never has it, so the service always uses the fixed
+    /// folder. The folder is as protected as the default one.
     /// </summary>
-    public const string ConfigDirectoryVariable = "ASPNETSERVER_CONFIG_DIR";
-    static string WindowsConfigDirectory =>
-        Environment.GetEnvironmentVariable(ConfigDirectoryVariable) is { Length: > 0 } directory ? directory :
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "aspnet-server");
+    public const string ConfigDirectoryOption = "--config-dir";
+
+    /// <summary>The folder given with <see cref="ConfigDirectoryOption"/>, or null for the fixed one. Set once at startup, by <see cref="TakeConfigDirectory"/>.</summary>
+    internal static string? ConfigDirectoryOverride { get; set; }
+
+    /// <summary>
+    /// Takes <see cref="ConfigDirectoryOption"/> and its folder out of the command line arguments, sets
+    /// <see cref="ConfigDirectoryOverride"/> from it (as a full path) and returns the other arguments, in their order. Without the option
+    /// nothing changes. Throws <see cref="ArgumentException"/> if the option has no folder.
+    /// </summary>
+    internal static string[] TakeConfigDirectory(string[] args)
+    {
+        var rest = new List<string>();
+        for (var i = 0; i < args.Length; i++)
+        {
+            string? directory = null;
+            if (args[i].Equals(ConfigDirectoryOption, StringComparison.OrdinalIgnoreCase))
+            {
+                if (i + 1 >= args.Length || args[i + 1].Length == 0) throw new ArgumentException($"{ConfigDirectoryOption} needs a folder.");
+                directory = args[++i];
+            }
+            else if (args[i].StartsWith(ConfigDirectoryOption + "=", StringComparison.OrdinalIgnoreCase))
+            {
+                directory = args[i].Substring(ConfigDirectoryOption.Length + 1);
+                if (directory.Length == 0) throw new ArgumentException($"{ConfigDirectoryOption} needs a folder.");
+            }
+
+            if (directory == null) rest.Add(args[i]);
+            else ConfigDirectoryOverride = Path.GetFullPath(directory);
+        }
+        return rest.ToArray();
+    }
+
+    internal static string ConfigDirectory =>
+        ConfigDirectoryOverride ?? (OSInfo.IsWindows ?
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "aspnet-server") :
+            "/etc/aspnet-server");
 
     [JsonIgnore]
-    public string ConfigPathOld => OSInfo.IsWindows ?
-        Path.Combine(WindowsConfigDirectory, "applications.json") :
+    public string ConfigPathOld => ConfigDirectoryOverride is { } directory ? Path.Combine(directory, "applications.json") :
+        OSInfo.IsWindows ? Path.Combine(ConfigDirectory, "applications.json") :
         "/etc/aspnetcore/applications.json";
     [JsonIgnore]
-    public string ConfigPath => OSInfo.IsWindows ?
-        Path.Combine(WindowsConfigDirectory, "configuration.json") :
-        "/etc/aspnet-server/configuration.json";
+    public string ConfigPath => Path.Combine(ConfigDirectory, "configuration.json");
+
+    /// <summary>
+    /// True if there is a configuration of the old version to import, which lives in a folder of its own (<c>/etc/aspnetcore</c>). The import
+    /// deletes that folder, so it never happens when the old file is in the folder of the current configuration, as with
+    /// <see cref="ConfigDirectoryOption"/> and on Windows.
+    /// </summary>
+    internal bool HasOldConfig =>
+        Path.GetDirectoryName(ConfigPathOld) != Path.GetDirectoryName(ConfigPath) && File.Exists(ConfigPathOld);
 
 #if Server
     [JsonIgnore]
@@ -281,38 +324,44 @@ public class Configuration
     int loadEntered = 0;
 
     static AsyncMutexLock? @lock = null;
-    public static AsyncMutexLock MutexLock => @lock ??= new AsyncMutexLock(LockName, MutexScope.Machine);
+    static string? lockPath = null;
+    static readonly object lockCreation = new object();
+    /// <summary>
+    /// The machine wide lock of the configuration. Its file is in the (protected) configuration folder, see <see cref="LockFiles"/>, so
+    /// the lock follows the folder: it is made again when the folder changes, which only the tests do.
+    /// </summary>
+    public static AsyncMutexLock MutexLock
+    {
+        get
+        {
+            lock (lockCreation)
+            {
+                var path = LockFiles.PathFor(LockName);
+                if (@lock == null || lockPath != path)
+                {
+                    @lock = new AsyncMutexLock(path);
+                    lockPath = path;
+                }
+                return @lock;
+            }
+        }
+    }
     public static Task<IDisposable> LockAsync(CancellationToken cancel = default) =>
         MutexLock.LockAsync(CancellationTokenSource.CreateLinkedTokenSource(cancel,
             new CancellationTokenSource(LockTimeout).Token).Token);
     public static IDisposable Lock(CancellationToken cancel = default) =>
         MutexLock.Lock(CancellationTokenSource.CreateLinkedTokenSource(cancel,
             new CancellationTokenSource(LockTimeout).Token).Token);
-    /// <summary>
-    /// True if the configuration.json can be changed by someone who may not: on Unix when its owner is neither root nor <paramref name="user"/>
-    /// or when group or other can write it, on Windows when its owner or the permissions of the file allow somebody else than
-    /// <paramref name="user"/>, the administrators and SYSTEM to change it.
-    /// </summary>
-    bool ConfigFileIsInsecure(string? user)
-    {
-        if (OSInfo.IsWindows) return WindowsFileSecurity.Check(ConfigPath, user) != null;
-        var fileMode = Unix.GetFilePermissions(ConfigPath);
-        var owner = Unix.GetOwnerAndGroup(ConfigPath).Owner;
-        return owner != user && owner != "root" ||
-            fileMode.HasFlag(UnixFileMode.GroupWrite) ||
-            fileMode.HasFlag(UnixFileMode.OtherWrite);
-    }
-
-    /// <summary>The error that is shown when <see cref="ConfigFileIsInsecure"/> is true.</summary>
-    string ConfigFileSecurityError(string? user) => OSInfo.IsWindows ?
+    /// <summary>The error that is shown when <see cref="SecureFile.IsInsecure"/> is true for the configuration.json.</summary>
+    string ConfigFileSecurityError(string? user, SecureFile file) => OSInfo.IsWindows || file.IsLink ?
         $"For security reasons, the configuration.json must be changeable only by administrators{(user != null ? $" and {user}" : "")}" +
-            $"{(WindowsFileSecurity.Check(ConfigPath, user) is { } problem ? $" ({problem})" : "")}." :
+            $"{(file.Problem(user) is { } problem ? $" ({problem})" : "")}." :
         $"For security reasons, the configuration.json must be owned by root {(user != null ? $"or {user} " : "")}and must not have group & other write permission set.";
 
     internal async Task<Configuration?> LoadConfigAsync(bool loadApps = true)
     {
         // import old config path /etc/aspnetcore if it exists to /etc/aspnet-server
-        if (File.Exists(ConfigPathOld))
+        if (HasOldConfig)
         {
             var path = Path.GetDirectoryName(ConfigPath);
             if (path != null && !Directory.Exists(path))
@@ -334,15 +383,24 @@ public class Configuration
             // Read the configuration file if it exists.
             try
             {
+                // The owner and permissions are checked on the handle that the text is read from, not on the path.
+                var secure = SecureFile.Read(ConfigPath);
+                if (secure.IsLink)
                 {
-                    if (ConfigFileIsInsecure(User))
+#if Server
+                    Logger?.LogError($"For security reasons, {Path.GetFileName(ConfigPath)} must not be a symbolic link. It is not loaded.");
+#endif
+                    return null; // not written back either: that would write through the link
+                }
+                {
+                    if (secure.IsInsecure(User))
                     {
-                        var txterror = File.ReadAllText(ConfigPath);
+                        var txterror = secure.Text;
                         try
                         {
                             var configerror = JsonConvert.DeserializeObject<Configuration>(txterror,
                                 new Newtonsoft.Json.Converters.VersionConverter(), new StringEnumConverter());
-                            configerror!.Error = ConfigFileSecurityError(User);
+                            configerror!.Error = ConfigFileSecurityError(User, secure);
 #if Server
                             Logger?.LogError(configerror.Error);
 #endif
@@ -361,7 +419,7 @@ public class Configuration
                     }
                 }
 
-                var txt = File.ReadAllText(ConfigPath);
+                var txt = secure.Text;
                 try
                 {
                     config = JsonConvert.DeserializeObject<Configuration>(txt,
@@ -394,7 +452,15 @@ public class Configuration
                         .Where(file => file != ConfigPath && file != ConfigPathOld)
                         .Select(file =>
                         {
-                            var json = File.ReadAllText(file);
+                            var appFile = SecureFile.Read(file);
+                            if (appFile.IsLink)
+                            {
+#if Server
+                                Logger?.LogError($"For security reasons, {Path.GetFileName(file)} must not be a symbolic link. It is not loaded.");
+#endif
+                                return null;
+                            }
+                            var json = appFile.Text;
                             if (string.IsNullOrEmpty(json)) return null;
                             Application? app = null;
                             try
@@ -425,19 +491,15 @@ public class Configuration
 #if Server
                             if (OSInfo.IsWindows)
                             {
-                                if (CheckWindowsAppFile(app, config, file)) hasError = true;
+                                if (CheckWindowsAppFile(app, config, file, appFile, secure)) hasError = true;
                             }
                             else
                             {
-                                var fileMode = Unix.GetFilePermissions(file);
-                                var owner = Unix.GetOwnerAndGroup(file).Owner;
-                                var fileInsecure = (owner != (app.User ?? config.User) && owner != "root" ||
-                                    fileMode.HasFlag(UnixFileMode.GroupWrite) ||
-                                    fileMode.HasFlag(UnixFileMode.OtherWrite));
+                                var fileInsecure = appFile.IsInsecure(app.User ?? config.User);
                                 // Only root may give an app a group the app's user does not belong to.
                                 // A group copied from a root-owned configuration.json is trusted.
-                                if (!fileInsecure && owner != "root" &&
-                                    (app.Group != config.Group || Unix.GetOwnerAndGroup(ConfigPath).Owner != "root") &&
+                                if (!fileInsecure && !appFile.OwnedByRoot &&
+                                    (app.Group != config.Group || !secure.OwnedByRoot) &&
                                     GroupError(app.Group, app.User ?? config.User) is { } groupError)
                                 {
                                     app.Offline = true;
@@ -499,7 +561,7 @@ public class Configuration
     internal Configuration? LoadConfig(bool loadApps = true)
     {
         // import old config path /etc/aspnetcore if it exists to /etc/aspnet-server
-        if (File.Exists(ConfigPathOld))
+        if (HasOldConfig)
         {
             var path = Path.GetDirectoryName(ConfigPath);
             if (path != null && !Directory.Exists(path))
@@ -521,15 +583,24 @@ public class Configuration
             // Read the configuration file if it exists.
             try
             {
+                // The owner and permissions are checked on the handle that the text is read from, not on the path.
+                var secure = SecureFile.Read(ConfigPath);
+                if (secure.IsLink)
                 {
-                    if (ConfigFileIsInsecure(User))
+#if Server
+                    Logger?.LogError($"For security reasons, {Path.GetFileName(ConfigPath)} must not be a symbolic link. It is not loaded.");
+#endif
+                    return null; // not written back either: that would write through the link
+                }
+                {
+                    if (secure.IsInsecure(User))
                     {
-                        var txterror = File.ReadAllText(ConfigPath);
+                        var txterror = secure.Text;
                         try
                         {
                             var configerror = JsonConvert.DeserializeObject<Configuration>(txterror,
                                 new Newtonsoft.Json.Converters.VersionConverter(), new StringEnumConverter());
-                            configerror!.Error = ConfigFileSecurityError(User);
+                            configerror!.Error = ConfigFileSecurityError(User, secure);
 #if Server
                             Logger?.LogError(configerror.Error);
 #endif
@@ -547,7 +618,7 @@ public class Configuration
                         }
                     }
                 }
-                var txt = File.ReadAllText(ConfigPath);
+                var txt = secure.Text;
                 try
                 {
                     config = JsonConvert.DeserializeObject<Configuration>(txt,
@@ -581,7 +652,15 @@ public class Configuration
                         .Where(file => file != ConfigPath && file != ConfigPathOld)
                         .Select(file =>
                         {
-                            var json = File.ReadAllText(file);
+                            var appFile = SecureFile.Read(file);
+                            if (appFile.IsLink)
+                            {
+#if Server
+                                Logger?.LogError($"For security reasons, {Path.GetFileName(file)} must not be a symbolic link. It is not loaded.");
+#endif
+                                return null;
+                            }
+                            var json = appFile.Text;
                             if (string.IsNullOrEmpty(json)) return null;
                             Application? app = null;
                             try
@@ -612,20 +691,15 @@ public class Configuration
 #if Server
                             if (OSInfo.IsWindows)
                             {
-                                if (CheckWindowsAppFile(app, config, file)) hasError = true;
+                                if (CheckWindowsAppFile(app, config, file, appFile, secure)) hasError = true;
                             }
                             else
                             {
-                                var fileMode = Unix.GetFilePermissions(file);
-                                var owner = Unix.GetOwnerAndGroup(file).Owner;
-                                var fileInsecure = (owner != (app.User ?? config.User) &&
-                                    owner != "root" ||
-                                    fileMode.HasFlag(UnixFileMode.GroupWrite) ||
-                                    fileMode.HasFlag(UnixFileMode.OtherWrite));
+                                var fileInsecure = appFile.IsInsecure(app.User ?? config.User);
                                 // Only root may give an app a group the app's user does not belong to.
                                 // A group copied from a root-owned configuration.json is trusted.
-                                if (!fileInsecure && owner != "root" &&
-                                    (app.Group != config.Group || Unix.GetOwnerAndGroup(ConfigPath).Owner != "root") &&
+                                if (!fileInsecure && !appFile.OwnedByRoot &&
+                                    (app.Group != config.Group || !secure.OwnedByRoot) &&
                                     GroupError(app.Group, app.User ?? config.User) is { } groupError)
                                 {
                                     app.Offline = true;
@@ -690,11 +764,11 @@ public class Configuration
     /// not belong to may only come from a file or a configuration.json that administrators own. Takes the app offline and returns true
     /// if something is wrong.
     /// </summary>
-    bool CheckWindowsAppFile(Application app, Configuration config, string file)
+    bool CheckWindowsAppFile(Application app, Configuration config, string file, SecureFile appFile, SecureFile configFile)
     {
         if (!OSInfo.IsWindows) return false;
         var user = app.User ?? config.User;
-        var problem = WindowsFileSecurity.Check(file, user);
+        var problem = appFile.Problem(user);
         if (problem != null)
         {
             app.Offline = true;
@@ -703,8 +777,8 @@ public class Configuration
                 $"{(string.IsNullOrEmpty(user) ? "administrators" : $"the app's User {user} and administrators")}.";
             return true;
         }
-        if (!WindowsFileSecurity.IsOwnedByAdministrators(file) &&
-            (app.Group != config.Group || !WindowsFileSecurity.IsOwnedByAdministrators(ConfigPath)) &&
+        if (!appFile.OwnedByRoot &&
+            (app.Group != config.Group || !configFile.OwnedByRoot) &&
             GroupError(app.Group, user) is { } groupError)
         {
             app.Offline = true;
@@ -1131,33 +1205,42 @@ public class Configuration
 #endif
     }
 
+    /// <summary>
+    /// Creates the configuration folder if it is not there, with the permissions it must have: on Unix mode 700 (770 with the admin group),
+    /// owned by root and <see cref="AdminGroup"/> if root creates it; on Windows full control for SYSTEM and the administrators, and
+    /// modify rights for the admin group, if an administrator creates it. The lock files are in this folder too, see <see cref="LockFiles"/>.
+    /// </summary>
+    internal static void EnsureConfigDirectory(string dir)
+    {
+        if (Directory.Exists(dir)) return;
+
+        Directory.CreateDirectory(dir);
+        if (!OSInfo.IsWindows)
+        {
+            if (AllowOnlyRootToCreateApplications)
+            {
+                Unix.SetFilePermissions(dir,
+                    UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            }
+            else if (AllowOnlyAdminsToCreateApplications)
+            {
+                Unix.SetFilePermissions(dir,
+                    UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
+                    UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.GroupExecute);
+            }
+            else throw new NotSupportedException("Either only root or only admin must be allowed to create applications.");
+            if (Unix.IsRoot) Unix.SetOwnerAndGroup(dir, "root", AdminGroup);
+        }
+        else if (WindowsFileSecurity.IsAdministrator())
+        {
+            WindowsFileSecurity.ProtectDirectory(dir, AllowOnlyAdminsToCreateApplications ? AdminGroup : null);
+        }
+    }
+
     public void SaveInternal(bool disableWatcher)
     {
         var dir = Path.GetDirectoryName(ConfigPath)!;
-        if (!Directory.Exists(dir))
-        {
-            Directory.CreateDirectory(dir);
-            if (!OSInfo.IsWindows)
-            {
-                if (AllowOnlyRootToCreateApplications)
-                {
-                    Unix.SetFilePermissions(dir,
-                        UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-                }
-                else if (AllowOnlyAdminsToCreateApplications)
-                {
-                    Unix.SetFilePermissions(dir,
-                        UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
-                        UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.GroupExecute);
-                }
-                else throw new NotSupportedException("Either only root or only admin must be allowed to create applications.");
-                if (Unix.IsRoot) Unix.SetOwnerAndGroup(dir, "root", AdminGroup);
-            }
-            else if (WindowsFileSecurity.IsAdministrator())
-            {
-                WindowsFileSecurity.ProtectDirectory(dir, AllowOnlyAdminsToCreateApplications ? AdminGroup : null);
-            }
-        }
+        EnsureConfigDirectory(dir);
 
         if (Applications == null) Applications = new Applications();
         var oapps = Applications;
@@ -1168,37 +1251,34 @@ public class Configuration
             if (app.Environment == null || app.Environment.Count == 0) app.Environment = null;
         }
         if (oapps.Count == 0) Applications = null;
-        if (!File.Exists(ConfigPath))
+        // Everything that is looked at about the file is read through one handle (see SecureFile). A link at the path is removed, and
+        // never written through: removing it only unlinks it.
+        var configFile = SecureFile.ReadIfExists(ConfigPath);
+        if (configFile is { IsLink: true })
         {
-            File.WriteAllText(ConfigPath, "");
-            if (!OSInfo.IsWindows)
+            File.Delete(ConfigPath);
+            configFile = null;
+        }
+        if (configFile == null)
+        {
+            // Windows: an empty file first, in order to set its permissions before the content is written. Unix: SecureFile.Write
+            // creates it, with the owner it should have and mode 600.
+            if (OSInfo.IsWindows)
             {
-                try
-                {
-                    Unix.SetOwnerAndGroup(ConfigPath, RunningUser ?? "root", null);
-                }
-                catch { }
-                Unix.SetFilePermissions(ConfigPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+                File.WriteAllText(ConfigPath, "");
+                if (WindowsFileSecurity.IsAdministrator()) WindowsFileSecurity.Protect(ConfigPath, null);
             }
-            else if (WindowsFileSecurity.IsAdministrator()) WindowsFileSecurity.Protect(ConfigPath, null);
             Error = null;
         }
         else if (OSInfo.IsWindows)
         {
-            Error = WindowsFileSecurity.Check(ConfigPath, RunningUser) is { } configProblem ?
+            Error = configFile.Problem(RunningUser) is { } configProblem ?
                 $"For security reasons, the configuration.json must be changeable only by administrators{(!string.IsNullOrEmpty(RunningUser) ? $" and {RunningUser}" : "")} ({configProblem})." : null;
         }
         else
         {
-            var fileMode = Unix.GetFilePermissions(ConfigPath);
-            var owner = Unix.GetOwnerAndGroup(ConfigPath).Owner;
-            if ((owner != RunningUser && owner != "root") ||
-                fileMode.HasFlag(UnixFileMode.GroupWrite) ||
-                fileMode.HasFlag(UnixFileMode.OtherWrite))
-            {
-                Error = $"For security reasons, the configuration.json must be owned by {((RunningUser != "root" && RunningUser != null) ? $"root or {RunningUser}" : "root")} and must not have group & other write permission set.";
-            }
-            else Error = null;
+            Error = configFile.IsInsecure(RunningUser) ?
+                $"For security reasons, the configuration.json must be owned by {((RunningUser != "root" && RunningUser != null) ? $"root or {RunningUser}" : "root")} and must not have group & other write permission set." : null;
         }
         var json = JsonConvert.SerializeObject(this, Formatting.Indented,
             new JsonSerializerSettings { DefaultValueHandling = DefaultValueHandling.Ignore });
@@ -1210,16 +1290,35 @@ public class Configuration
 #if Server
         if (watcher != null && disableWatcher) watcher.EnableRaisingEvents = false;
 #endif
-        File.WriteAllText(ConfigPath, json);
+        // Unix: root gives the file to root and the admin group. An insecure file is written back with the owner it has, so that it stays
+        // insecure and is not made trustworthy by being saved.
+        string? configOwner = null, configGroup = null;
+        if (!OSInfo.IsWindows && Unix.IsRoot)
+        {
+            if (Error == null) (configOwner, configGroup) = ("root", AdminGroup);
+            else (configOwner, configGroup) = (configFile?.Owner, configFile?.Group);
+        }
+        SecureFile.Write(ConfigPath, json, configOwner, configGroup, configFile, Error != null);
         foreach (var extapp in extapps)
         {
             var file = Path.Combine(Path.GetDirectoryName(ConfigPath)!, $"{extapp.Name}.json");
             bool fileIsInsecure = false;
-            if (!File.Exists(file)) File.WriteAllText(file, ""); // Write empty file, in order to set permissions first, before writing content
+            // A link at the path is removed and never written through. The file is read through one handle.
+            var current = SecureFile.ReadIfExists(file);
+            if (current is { IsLink: true })
+            {
+                File.Delete(file);
+                current = null;
+            }
+            if (current == null)
+            {
+                // Windows: an empty file first, in order to set permissions before the content is written. Unix: SecureFile.Write creates it.
+                if (OSInfo.IsWindows) File.WriteAllText(file, "");
+            }
             else
             {
                 if (OSInfo.IsWindows &&
-                    WindowsFileSecurity.Check(file, extapp.User ?? RunningUser) is { } windowsProblem)
+                    current.Problem(extapp.User ?? RunningUser) is { } windowsProblem)
                 {
                     // File can be changed by someone else than the user of the app and the administrators
                     fileIsInsecure = true;
@@ -1230,11 +1329,7 @@ public class Configuration
                 }
                 if (!OSInfo.IsWindows)
                 {
-                    var fileMode = Unix.GetFilePermissions(file);
-                    var owner = Unix.GetOwnerAndGroup(file).Owner;
-                    if ((owner != (extapp.User ?? RunningUser) && owner != "root" ||
-                        fileMode.HasFlag(UnixFileMode.GroupWrite) ||
-                        fileMode.HasFlag(UnixFileMode.OtherWrite)))
+                    if (current.IsInsecure(extapp.User ?? RunningUser))
                     {
                         // File has insecure permissions or owner
                         fileIsInsecure = true;
@@ -1250,25 +1345,20 @@ public class Configuration
             var extjson = JsonConvert.SerializeObject(extapp, Formatting.Indented,
                 new JsonSerializerSettings { DefaultValueHandling = DefaultValueHandling.Ignore });
             if (extapp.Environment == null) extapp.Environment = new Dictionary<string, string>();
-            try
-            {
-                if (!fileIsInsecure && Unix.IsRoot) Unix.SetOwnerAndGroup(file, extapp.User ?? RunningUser ?? "root", AdminGroup);
-            }
-            catch { }
-            if (!OSInfo.IsWindows)
-            {
-                try
-                {
-                    Unix.SetFilePermissions(file, UnixFileMode.UserRead | UnixFileMode.UserWrite);
-                }
-                catch { }
-            }
             if (OSInfo.IsWindows && !fileIsInsecure && WindowsFileSecurity.IsAdministrator())
             {
                 try { WindowsFileSecurity.Protect(file, extapp.User ?? RunningUser); }
                 catch { }
             }
-            File.WriteAllText(file, extjson); // Now after setting permissions, write file.
+            // Unix: root gives the file to the app's user. An insecure file is written back with the owner it has, so that it stays
+            // insecure and is not made trustworthy by being saved.
+            string? fileOwner = null, fileGroup = null;
+            if (!OSInfo.IsWindows && Unix.IsRoot)
+            {
+                if (fileIsInsecure) (fileOwner, fileGroup) = (current?.Owner, current?.Group);
+                else (fileOwner, fileGroup) = (extapp.User ?? RunningUser ?? "root", AdminGroup);
+            }
+            SecureFile.Write(file, extjson, fileOwner, fileGroup, current, fileIsInsecure);
         }
         // set permissions
         if (!OSInfo.IsWindows)
@@ -1280,11 +1370,7 @@ public class Configuration
                 {
                     Unix.SetFilePermissions(configDir!, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
                     Unix.SetOwnerAndGroup(configDir!, "root", AdminGroup);
-                    if (Error == null)
-                    {
-                        Unix.SetFilePermissions(ConfigPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
-                        Unix.SetOwnerAndGroup(ConfigPath, "root", AdminGroup);
-                    }
+                    // the owner and mode of the configuration.json were set when it was written, see SecureFile.Write
                 }
             }
             else if (AllowOnlyAdminsToCreateApplications)
@@ -1294,11 +1380,7 @@ public class Configuration
                     Unix.SetFilePermissions(configDir!, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
                         UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.GroupExecute);
                     Unix.SetOwnerAndGroup(configDir!, "root", AdminGroup);
-                    if (Error == null)
-                    {
-                        Unix.SetFilePermissions(ConfigPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
-                        Unix.SetOwnerAndGroup(ConfigPath, "root", AdminGroup);
-                    }
+                    // the owner and mode of the configuration.json were set when it was written, see SecureFile.Write
                 }
             }
             else throw new NotSupportedException("Either only root or only admins must be allowed to create applications.");
@@ -1527,7 +1609,8 @@ public class Configuration
             EnableRaisingEvents = true
         };
 
-        watcher.Changed += (_, __) =>
+        // The server saves a file by renaming a new one over it, and an editor may do the same, which is a rename and not a change.
+        FileSystemEventHandler onChange = (_, __) =>
         {
             reloadCts?.Cancel();
 
@@ -1545,6 +1628,9 @@ public class Configuration
                 }
             });
         };
+        watcher.Changed += onChange;
+        watcher.Created += onChange;
+        watcher.Renamed += (sender, e) => onChange(sender, e);
         watcher.EnableRaisingEvents = true;
         Load();
     }
@@ -1554,7 +1640,8 @@ public class Configuration
         if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
 
         watcher = new FileSystemWatcher(dir, "*.json");
-        watcher.Changed += (_, __) =>
+        // The server saves a file by renaming a new one over it, and an editor may do the same, which is a rename and not a change.
+        FileSystemEventHandler onChange = (_, __) =>
         {
             reloadCts?.Cancel();
 
@@ -1572,9 +1659,25 @@ public class Configuration
                 }
             });
         };
+        watcher.Changed += onChange;
+        watcher.Created += onChange;
+        watcher.Renamed += (sender, e) => onChange(sender, e);
         watcher.EnableRaisingEvents = true;
 
         await LoadAsync();
+    }
+
+    /// <summary>
+    /// The status of the applications when the server is stopped: Stopped, except for an application that is in Error. That one keeps its
+    /// error and its message: stopping the server does not repair it, and the next start of the server and aspnet-server status have to
+    /// tell why it does not run.
+    /// </summary>
+    static void MarkStopped(IEnumerable<Application> apps)
+    {
+        foreach (var app in apps)
+        {
+            if (app.Status != Status.Error) app.Status = Status.Stopped;
+        }
     }
 
     public void Shutdown()
@@ -1592,23 +1695,28 @@ public class Configuration
             IsShuttingDown = true;
             var config = LoadConfig();
             apps = Applications?.ToList() ?? Enumerable.Empty<Application>();
-            foreach (var app in apps)
-            {
-                app.Status = Status.Stopped;
-            }
+            MarkStopped(apps);
             config?.Save(false, false);
         }
+        // Select(Task.Run(...)), not Select(async app => Task.Run(...)): the async lambda makes a sequence of Task<Task> whose outer tasks
+        // are done at once, so nothing would wait for the work, and Task.WaitAll throws an ArrayTypeMismatchException for such a
+        // sequence when it is made from an empty array (as it is when there is no configuration).
         var tasks = apps
             .Where(app => app.Proxy != null)
-            .Select(async app =>
+            .Select(app => Task.Run(() =>
             {
-                return Task.Run(() =>
-                {
-                    app.Proxy?.Shutdown();
-                    app.Proxy = null;
-                });
-            });
+                app.Proxy?.Shutdown();
+                app.Proxy = null;
+            }))
+            .ToArray();
         Task.WaitAll(tasks);
+
+        // The same as in ShutdownAsync: the file would say Stopping for ever.
+        using (var mutex = Lock())
+        {
+            MarkStopped(apps);
+            Save(true, false);
+        }
 #else
         using var mutex = Lock();
         Command = Command.Shutdown;
@@ -1630,24 +1738,32 @@ public class Configuration
         {
             IsShuttingDown = true;
             var config = await LoadConfigAsync();
-            apps = config?.Applications?.ToList() ?? Enumerable.Empty<Application>();
-            foreach (var app in apps)
-            {
-                app.Status = Status.Stopped;
-            }
+            // The applications of this configuration, like Shutdown() has it: they are the ones that have a Proxy. The applications of the
+            // configuration that has just been loaded are new objects and never have one, so none of the proxies was shut down.
+            apps = Applications?.ToList() ?? Enumerable.Empty<Application>();
+            MarkStopped(apps);
             await (config?.SaveAsync(false, false) ?? Task.CompletedTask);
         }
+        // Select(Task.Run(...)), not Select(async app => Task.Run(...)): the async lambda makes a sequence of Task<Task> whose outer tasks
+        // are done at once, so nothing would wait for the work, and Task.WaitAll throws an ArrayTypeMismatchException for such a
+        // sequence when it is made from an empty array (as it is when there is no configuration).
         var tasks = apps
             .Where(app => app.Proxy != null)
-            .Select(async app =>
+            .Select(app => Task.Run(async () =>
             {
-                return Task.Run(async () =>
-                {
-                    await (app.Proxy?.ShutdownAsync() ?? Task.CompletedTask);
-                    app.Proxy = null;
-                });
-            });
-        Task.WaitAll(tasks);
+                await (app.Proxy?.ShutdownAsync() ?? Task.CompletedTask);
+                app.Proxy = null;
+            }))
+            .ToArray();
+        await Task.WhenAll(tasks);
+
+        // While the proxies shut their applications down they record Stopping, and nothing records that this is over: the file would
+        // say Stopping for ever, for the next start of the server and for aspnet-server status.
+        using (var mutex = await LockAsync())
+        {
+            MarkStopped(apps);
+            await SaveAsync(true, false);
+        }
 #else
         using var mutex = await LockAsync();
         Command = Command.Shutdown;
@@ -1662,16 +1778,17 @@ public class Configuration
         {
             apps = Applications?.ToList() ?? Enumerable.Empty<Application>();
         }
+        // Select(Task.Run(...)), not Select(async app => Task.Run(...)): the async lambda makes a sequence of Task<Task> whose outer tasks
+        // are done at once, so nothing would wait for the work, and Task.WaitAll throws an ArrayTypeMismatchException for such a
+        // sequence when it is made from an empty array (as it is when there is no configuration).
         var tasks = apps
             .Where(app => app.Proxy != null)
-            .Select(async app =>
+            .Select(app => Task.Run(() =>
             {
-                return Task.Run(() =>
-                {
-                    app.Proxy?.Shutdown(false);
-                    app.Proxy = null;
-                });
-            });
+                app.Proxy?.Shutdown(false);
+                app.Proxy = null;
+            }))
+            .ToArray();
         Task.WaitAll(tasks);
         Load();
 #else
@@ -1687,16 +1804,15 @@ public class Configuration
         using (var mutex = await LockAsync())
         {
             apps = Applications?.ToList() ?? Enumerable.Empty<Application>();
+            // The Tasks themselves, so that the configuration is not loaded again before the proxies are down (see ShutdownAsync).
             var tasks = apps
                 .Where(app => app.Proxy != null)
-                .Select(async app =>
+                .Select(app => Task.Run(async () =>
                 {
-                    return Task.Run(async () =>
-                    {
-                        await (app.Proxy?.ShutdownAsync(false) ?? Task.CompletedTask);
-                        app.Proxy = null;
-                    });
-                });
+                    await (app.Proxy?.ShutdownAsync(false) ?? Task.CompletedTask);
+                    app.Proxy = null;
+                }))
+                .ToArray();
             await Task.WhenAll(tasks);
         }
         await LoadAsync();

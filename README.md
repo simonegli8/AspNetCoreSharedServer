@@ -214,11 +214,32 @@ and starts the app with that token. The app is put in a job object, so it ends w
   sets this when it saves, if it runs as an administrator or SYSTEM (anybody else would lock themselves out), and when it loads a
   `configuration.json` that someone else can change it refuses it and writes the error into it, like on Linux. `AspNetCoreSharedServer.Api`
   does the same on Windows when it saves.
-- On Windows the configuration lives in `%ProgramData%spnet-server`. The environment variable `ASPNETSERVER_CONFIG_DIR` names another
-  folder (the tests use it, so that they never touch the real one).
-- A user of a domain is not supported, only local users (`name`, `.
-ame` or `MACHINE
-ame`).
+- `aspnet-server install` creates the group `aspnet-server` if it does not exist, every time it runs: on Linux and macOS with `groupadd`
+  or `dscl`, on Windows as a local group. The server gives its configuration folder to that group, which fails without it. The group
+  starts empty: add the people who may create applications to it. Uninstalling leaves it, because it holds people.
+- The machine wide locks (the lock of the configuration and the lock that lets only one server run) are files **inside the configuration
+  folder** (`*.lock`), not in the folder that `AsyncMutexLock` would use for every program on the machine. A lock is held by whoever can
+  open its file, so a lock file that every user can open is one that every user can hold, and anybody could stop the server from starting
+  or from saving its configuration. The configuration folder belongs to root (SYSTEM, the administrators) and the group `aspnet-server`,
+  so exactly the people who may use the configuration can use the locks; anybody else is told that they have no permission, and not that
+  another instance is running. On Linux and macOS the lock files are mode 660 for that group. A server started with `--config-dir` has
+  its locks in that folder, so it does not compete with the real one, and a member of the group (or root) is all it takes to run it.
+- The server reads `configuration.json` and the app files through one open file and checks the owner and permissions of that file, not of
+  its path, so nobody who can write to the folder can swap a checked file for another one between the check and the read. On Linux and
+  macOS the file is opened with `O_NOFOLLOW`, on Windows it is locked against writing, renaming and deleting while it is read. A symbolic
+  link is never trusted: a link as `configuration.json` is not loaded, and an app file that is a link is skipped. When the server saves, a
+  link at the path is removed and never written through, and on Linux and macOS the content goes to a new file (created with
+  `O_EXCL | O_NOFOLLOW`, its owner set before anything is written) that is renamed over the old one, so neither a symbolic link nor a hard
+  link at the path can send the write into another file. A file that is not secure is written back with the owner it has, so saving never
+  makes it trusted.
+- The configuration lives in `%ProgramData%\aspnet-server` on Windows and in `/etc/aspnet-server` on Linux and macOS. The command line
+  option `--config-dir <folder>` (or `--config-dir=<folder>`) names another folder on every platform, for the server and for the commands
+  (`aspnet-server stop MyApp --config-dir <folder>`); the tests use it, so that they never touch the real one. The server protects and
+  checks that folder like the default one. It is deliberately not an environment variable: the environment of a process that runs as
+  root or SYSTEM is handed down by whatever started it, a command line is what the person who starts the server writes. A service never
+  has the option, so it always uses the fixed folder. The old `applications.json` import (from `/etc/aspnetcore`) never happens when the
+  old file is in the folder of the current configuration, because the import deletes the old folder.
+- A user of a domain is not supported, only local users (`name`, `.\name` or `MACHINE\name`).
 - When `User` is the account that the server runs as, or empty, the app is started directly, as before.
 
 You can also manage the configuration.json file programmatically by using AspNetCoreSharedServer.Api:

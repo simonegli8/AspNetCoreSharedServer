@@ -19,6 +19,10 @@ dotnet test src/AspNetCoreSharedServer.Tests
 | `UnixTests` / `MacOsUnixTests` | `Unix.IsUserInGroup`, which decides which groups an app owner may use, and `UserExists`/`GroupExists`. `UnixTests` reads /etc/passwd and runs on Linux only; `MacOsUnixTests` uses accounts every Mac has and runs on macOS only. |
 | `UnixStatTests` | How the owner of a file is read from the stat record of the operating system: the layouts of macOS (`UnixMac`), Linux x86_64 (`UnixX64`), Linux arm64 (`UnixArm`) and `statx`, built byte by byte so that they are tested on every machine, a wrong layout being refused instead of believed, and (on Linux and macOS) `Unix.GetOwnerAndGroup` against `stat(1)`. |
 | `WindowsAccountsTests` | Windows: local users and groups (`UserExists`, `GroupExists`, `IsUserInGroup`), the environment block of an app (the server's variables win) and the check for the privileges of an S4U launch. Read-only, no administrator rights needed. Skipped elsewhere. |
+| `LockFilesTests` | The server's lock files are inside its (protected) configuration folder and not in the shared lock folder that every user can write to, which would let any user hold the lock (a denial of service): the file's place, mode 660 for the admin group, repair of a world-readable file, a symbolic link replaced and its target left alone, two locks excluding each other, the configuration lock following the folder, and somebody who may not enter the folder being told so. |
+| `ShutdownTests` | Shutting the server down when its configuration could not be loaded or is refused (that used to end the process with an `ArrayTypeMismatchException`: `Task.WaitAll` over a sequence of `Task<Task>` made from an empty array), restarting with nothing to restart, and a failure in the shutdown being logged by the worker instead of ending the process. |
+| `ConfigDirectoryTests` | Where the configuration lives: the fixed folder of the platform, or the folder of the command line option `--config-dir` (`--config-dir <folder>` or `--config-dir=<folder>`, anywhere on the command line) on every platform; the environment variable of the old version does nothing; the option without a folder is an error; a legacy `applications.json` next to the configuration is not imported (the import would delete its folder). Only looks at paths. |
+| `SecureFileTests` | `SecureFile`, how the server reads `configuration.json` and the app files: the owner and permissions are taken from the open handle that the text is read from, not from the path, so the file that was checked is the file that was read (no swap in between); on Windows the file is locked against writing, renaming and deleting meanwhile; a symbolic link is rejected and its target never read (on Unix by `O_NOFOLLOW` itself, and a test checks that the open flags of the platform are the right ones); a file that is briefly open for writing is read after a short retry. Writing on Unix: a new file renamed over the old one, mode 600, owner set through its handle, a symbolic link or hard link at the path is replaced and never written through, an owner that must be kept but cannot be set leaves the old file alone. Unix and Windows variants, no administrator rights needed (a symbolic link needs them on Windows, otherwise those tests skip). |
 | `WindowsFileSecurityTests` / `WindowsAppFileLoadTests` | Windows: who may change an app's json file, read from its permissions (user, administrators and SYSTEM only), the permissions the server sets, and loading `configuration.json` with app files: an insecure file, or a group that the user is not in, takes the app offline; an insecure `configuration.json` is refused; saving as an administrator protects the folder and the file. No administrator rights needed. |
 | `WindowsLaunchTests` | **Opt-in, needs LocalSystem.** The real S4U launch: creates a local user, starts a process as it, checks who it is and which variables it got, and that ending the launch ends the app. See below. |
 | `SudoArgumentsTests` | The sudo command line with which the server starts an app as another user (Linux and macOS): `-H -u user [-g group] NAME=value... -- command`, with hostile values kept inside their own argument. |
@@ -69,7 +73,7 @@ source as an error.
 
 `EndToEndHttp3Tests` start the real server with the real `AspNetCoreTestApp` behind it, and talk to it with a real HTTP/3
 client: discovery through `Alt-Svc`, an app that dies and is restarted, and HTTP/3 traffic keeping the app from being shut
-down as idle. `AppPoolStopTests` also start the real server and run `aspnet-server stop` and `start` for an app pool (plain HTTP, no QUIC or certificate needed). They take about 40 seconds and only run when asked:
+down as idle. `AppPoolStopTests` also start the real server and run `aspnet-server stop` and `start` for an app pool (plain HTTP, no QUIC or certificate needed). `ServerStopTests` start the real server and an app through it, stop the server with Ctrl+C (SIGINT), and check that the app is shut down with it and not left running. They take about 40 seconds and only run when asked:
 
 ```
 set ASPNETSERVER_E2E=1
@@ -77,8 +81,11 @@ dotnet test src/AspNetCoreSharedServer.Tests --filter Category=EndToEnd
 ```
 
 They need:
-- **Windows, elevated.** The server is told where its configuration is with `ASPNETSERVER_CONFIG_DIR`, so the tests run it in a temporary
-  folder and never touch a real configuration. The server only loads a `configuration.json` that administrators alone can change, so it
-  (and the test) must run as an administrator. On Linux the path is `/etc/aspnet-server`, which a test must not change.
-- QUIC support in the operating system (Windows 11 / Server 2022 or newer).
-- The ASP.NET Core HTTPS development certificate: `dotnet dev-certs https`.
+- **`--config-dir`.** The server and the commands the tests run are told where the configuration is with this command line option, so
+  the tests run in a temporary folder and never touch a real configuration.
+- **Windows: elevated.** The server only loads a `configuration.json` that administrators alone can change, so it (and the test) must run
+  as an administrator. On Linux and macOS run them as root, like the server: its single-instance lock does not work for an ordinary
+  user, and as root it also gives its folder to the group `aspnet-server`, which has to exist (`aspnet-server install` creates it). The
+  test writes a `configuration.json` of its own (root, mode 600) into a temporary folder.
+- For `EndToEndHttp3Tests` only: QUIC support in the operating system (Windows 11 / Server 2022 or newer).
+- For `EndToEndHttp3Tests` only: the ASP.NET Core HTTPS development certificate: `dotnet dev-certs https`.

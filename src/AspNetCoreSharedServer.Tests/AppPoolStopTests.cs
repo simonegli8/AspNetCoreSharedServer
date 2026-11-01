@@ -8,7 +8,7 @@ namespace AspNetCoreSharedServer.Tests;
 
 /// <summary>
 /// <c>aspnet-server stop &lt;app&gt;</c> against a real server: the app must be offline, reported as Stopped, and no longer listening, and
-/// <c>start</c> must bring it back. Like the other end-to-end tests it only runs when asked (<c>ASPNETSERVER_E2E=1</c>), on Windows, and
+/// <c>start</c> must bring it back. Like the other end-to-end tests it only runs when asked (<c>ASPNETSERVER_E2E=1</c>), and on Windows
 /// elevated, because the server only loads a configuration.json that administrators alone can change. It needs neither QUIC nor a
 /// certificate: the app listens on plain HTTP.
 /// </summary>
@@ -21,7 +21,8 @@ public class AppPoolStopTests
         var info = new ProcessStartInfo("dotnet") { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
         info.ArgumentList.Add(TestPaths.ServerDll);
         foreach (var argument in arguments) info.ArgumentList.Add(argument);
-        info.Environment[Configuration.ConfigDirectoryVariable] = folder;
+        info.ArgumentList.Add(Configuration.ConfigDirectoryOption);
+        info.ArgumentList.Add(folder);
         using var process = Process.Start(info)!;
         var output = process.StandardOutput.ReadToEnd();
         process.WaitForExit(30000);
@@ -52,8 +53,7 @@ public class AppPoolStopTests
     public async Task A_stopped_app_pool_is_offline_stopped_and_no_longer_listening_and_starts_again()
     {
         Skip.IfNot(Environment.GetEnvironmentVariable("ASPNETSERVER_E2E") == "1", "Opt-in: set ASPNETSERVER_E2E=1 to run the end-to-end tests.");
-        Skip.IfNot(OperatingSystem.IsWindows(), "Only on Windows can the test tell the server where its configuration is (ASPNETSERVER_CONFIG_DIR).");
-        Skip.IfNot(WindowsFileSecurity.IsAdministrator(), "The server only loads a configuration.json that administrators alone can change.");
+        Skip.If(OperatingSystem.IsWindows() && !WindowsFileSecurity.IsAdministrator(), "The server only loads a configuration.json that administrators alone can change.");
         Skip.IfNot(File.Exists(TestPaths.ServerDll) && File.Exists(TestPaths.TestAppDll), "The server or the test app is not built.");
 
         var port = await Configuration.FindFreePortAsync(temporary: true);
@@ -68,11 +68,13 @@ public class AppPoolStopTests
                 new { Name = "TestApp", ListenUrls = $"http://localhost:{port}/", Urls = $"http://localhost:{port}", Assembly = TestPaths.TestAppDll },
             },
         }));
-        WindowsFileSecurity.Protect(file, null);
+        if (OperatingSystem.IsWindows()) WindowsFileSecurity.Protect(file, null);
+        else File.SetUnixFileMode(file, System.IO.UnixFileMode.UserRead | System.IO.UnixFileMode.UserWrite);
 
         var info = new ProcessStartInfo("dotnet") { WorkingDirectory = folder, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
         info.ArgumentList.Add(TestPaths.ServerDll);
-        info.Environment[Configuration.ConfigDirectoryVariable] = folder;
+        info.ArgumentList.Add(Configuration.ConfigDirectoryOption);
+        info.ArgumentList.Add(folder);
         using var server = Process.Start(info)!;
         server.BeginOutputReadLine();
         server.BeginErrorReadLine();

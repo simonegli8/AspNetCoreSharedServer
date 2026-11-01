@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Text;
+using Microsoft.Win32.SafeHandles;
 
 namespace AspNetCoreSharedServer;
 
@@ -212,6 +213,221 @@ public class Unix
         }
     }
 
+    /// <summary>
+    /// The permissions of an open file, read from its handle (<c>File.GetUnixFileMode(SafeFileHandle)</c>, which netstandard2.0 does not
+    /// have, so it is called through reflection like <see cref="GetFilePermissions(string)"/>).
+    /// </summary>
+    [SupportedOSPlatform("linux")]
+    [SupportedOSPlatform("macos")]
+    [SupportedOSPlatform("freebsd")]
+    public static UnixFileMode GetFilePermissions(SafeFileHandle handle)
+    {
+        var method = typeof(File).GetMethod("GetUnixFileMode", new[] { typeof(SafeFileHandle) })
+            ?? throw new PlatformNotSupportedException("File.GetUnixFileMode(SafeFileHandle) is not available.");
+        return (UnixFileMode)Convert.ToInt32(method.Invoke(null, new object[] { handle }));
+    }
+
+    /// <summary>
+    /// The owner and group of an open file, read from its handle with fstat: what is checked is then the file that is read, whatever
+    /// happens to the path afterwards.
+    /// </summary>
+    [SupportedOSPlatform("linux")]
+    [SupportedOSPlatform("macos")]
+    [SupportedOSPlatform("freebsd")]
+    public static (string Owner, string Group) GetOwnerAndGroup(SafeFileHandle handle)
+    {
+        var mode = (uint)GetFilePermissions(handle);
+        var fd = (int)handle.DangerousGetHandle();
+        var (uid, gid) = OSInfo.IsMac ? UnixMac.GetIds(fd, mode) : UnixLinux.GetIds(fd, mode);
+        return Names(uid, gid);
+    }
+
+    // ---- Opening a file without ever following a symbolic link --------------------------------------------------------------------
+
+    [DllImport("libc", SetLastError = true)]
+    static extern int open(string path, int flags, uint mode);
+
+    [DllImport("libc", SetLastError = true)]
+    static extern int close(int fd);
+
+    [DllImport("libc", SetLastError = true)]
+    static extern int fchown(int fd, uint owner, uint group);
+
+    [DllImport("libc", SetLastError = true)]
+    static extern int fchmod(int fd, uint mode);
+
+    [DllImport("libc", SetLastError = true)]
+    static extern int rename(string oldPath, string newPath);
+
+    [DllImport("libc", SetLastError = true)]
+    static extern int symlink(string target, string linkPath);
+
+    const int O_RDONLY = 0, O_WRONLY = 1;
+    const int ENOENT = 2, EPERM = 1, EACCES = 13, EEXIST = 17;
+
+    /// <summary>The values of the open flags on this platform. They differ between systems and, for O_NOFOLLOW, between architectures.</summary>
+    sealed class OpenFlags
+    {
+        public int NoFollow, Create, Exclusive, CloseOnExec;
+        public OpenFlags(int noFollow, int create, int exclusive, int closeOnExec) =>
+            (NoFollow, Create, Exclusive, CloseOnExec) = (noFollow, create, exclusive, closeOnExec);
+    }
+
+    static OpenFlags? openFlags;
+    static bool openFlagsDetected;
+    static readonly object openFlagsLock = new object();
+
+    static OpenFlags? GetOpenFlags()
+    {
+        lock (openFlagsLock)
+        {
+            if (!openFlagsDetected)
+            {
+                openFlags = DetectOpenFlags();
+                openFlagsDetected = true;
+            }
+            return openFlags;
+        }
+    }
+
+    /// <summary>
+    /// True if <see cref="OpenNoFollow"/> can be used on this system: the open flags of the platform are known and have been shown to do
+    /// what they should (see <see cref="DetectOpenFlags"/>). Where it is false the callers look at the path before and after opening it.
+    /// </summary>
+    public static bool CanOpenWithoutFollowing => GetOpenFlags() != null;
+
+    /// <summary>
+    /// The flags for open(2) on this platform, or null if they are not known or do not behave. O_NOFOLLOW is 0400000 on x86 and 0100000 on
+    /// the other Linux architectures, 0x100 on macOS and FreeBSD, and the other flags differ between the systems, so they are not trusted
+    /// until they have been tried on a real file and a real symbolic link: opening the link must fail, opening the file must work, and
+    /// O_CREAT | O_EXCL must create a file once and then refuse. A wrong constant would otherwise be some other flag.
+    /// </summary>
+    static OpenFlags? DetectOpenFlags()
+    {
+        OpenFlags candidate;
+        if (OSInfo.IsLinux)
+        {
+            var architecture = RuntimeInformation.ProcessArchitecture;
+            candidate = new OpenFlags(architecture == Architecture.X64 || architecture == Architecture.X86 ? 0x20000 : 0x8000, 0x40, 0x80, 0x80000);
+        }
+        else if (OSInfo.IsMac) candidate = new OpenFlags(0x100, 0x200, 0x800, 0x1000000);
+        else if (OSInfo.IsFreeBSD) candidate = new OpenFlags(0x100, 0x200, 0x800, 0x100000);
+        else return null;
+
+        var dir = Path.Combine(Path.GetTempPath(), "aspsrv-open-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Directory.CreateDirectory(dir);
+            var file = Path.Combine(dir, "file");
+            File.WriteAllText(file, "x");
+            var link = Path.Combine(dir, "link");
+            if (symlink(file, link) != 0) return null;
+
+            var fd = open(file, O_RDONLY | candidate.NoFollow | candidate.CloseOnExec, 0);
+            if (fd < 0) return null;
+            close(fd);
+            fd = open(link, O_RDONLY | candidate.NoFollow | candidate.CloseOnExec, 0);
+            if (fd >= 0) { close(fd); return null; }
+
+            var created = Path.Combine(dir, "created");
+            const int createFlags = O_WRONLY;
+            fd = open(created, createFlags | candidate.Create | candidate.Exclusive | candidate.NoFollow | candidate.CloseOnExec, 0x180);
+            if (fd < 0) return null;
+            close(fd);
+            fd = open(created, createFlags | candidate.Create | candidate.Exclusive | candidate.NoFollow | candidate.CloseOnExec, 0x180);
+            if (fd >= 0) { close(fd); return null; }
+            return File.Exists(created) ? candidate : null;
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+        finally
+        {
+            try { Directory.Delete(dir, true); } catch (Exception) { }
+        }
+    }
+
+    /// <summary>
+    /// Opens a file with O_NOFOLLOW, so that the open itself fails if the last part of the path is a symbolic link: there is no gap in
+    /// which a link can be swapped in after the path has been looked at. Returns null (and <paramref name="isLink"/>) for a link. With
+    /// <paramref name="createNew"/> the file is created for writing with mode 0600, with O_EXCL, and it is an error if anything
+    /// (including a link) is already there. Throws <see cref="FileNotFoundException"/>, <see cref="UnauthorizedAccessException"/> or
+    /// <see cref="IOException"/> for other failures. Needs <see cref="CanOpenWithoutFollowing"/>.
+    /// </summary>
+    public static FileStream? OpenNoFollow(string path, bool createNew, out bool isLink)
+    {
+        var flags = GetOpenFlags() ?? throw new PlatformNotSupportedException("The open flags of this platform are not known.");
+        var mode = createNew ? O_WRONLY | flags.Create | flags.Exclusive : O_RDONLY;
+        var fd = open(path, mode | flags.NoFollow | flags.CloseOnExec, 0x180);
+        isLink = false;
+        if (fd < 0)
+        {
+            var errno = Marshal.GetLastWin32Error();
+            // ELOOP is what Linux and macOS report for O_NOFOLLOW on a link, FreeBSD reports EMLINK. With O_EXCL a link is EEXIST.
+            const int ELOOPLinux = 40, ELOOPOther = 62, EMLINK = 31;
+            if (!createNew && (errno == (OSInfo.IsLinux ? ELOOPLinux : ELOOPOther) || !OSInfo.IsLinux && errno == EMLINK))
+            {
+                isLink = true;
+                return null;
+            }
+            var message = new System.ComponentModel.Win32Exception(errno).Message + $": '{path}'";
+            if (errno == ENOENT) throw new FileNotFoundException(message, path);
+            if (errno == EACCES || errno == EPERM) throw new UnauthorizedAccessException(message);
+            throw new IOException(message, errno);
+        }
+        return new FileStream(new SafeFileHandle((IntPtr)fd, true), createNew ? FileAccess.Write : FileAccess.Read, 4096, false);
+    }
+
+    /// <summary>
+    /// Sets the owner and group of an open file by its handle (fchown), so that it cannot be another file than the one that was opened.
+    /// A null name leaves that part as it is.
+    /// </summary>
+    [SupportedOSPlatform("linux")]
+    [SupportedOSPlatform("macos")]
+    [SupportedOSPlatform("freebsd")]
+    public static void SetOwnerAndGroup(SafeFileHandle handle, string? username, string? groupName)
+    {
+        uint uid = uint.MaxValue, gid = uint.MaxValue; // -1: unchanged
+        if (!string.IsNullOrEmpty(username))
+        {
+            var pwd = getpwnam(username!);
+            if (pwd == IntPtr.Zero) throw new Exception($"User not found: {username}");
+            uid = Marshal.PtrToStructure<Passwd>(pwd).pw_uid;
+        }
+        if (!string.IsNullOrEmpty(groupName))
+        {
+            var grp = getgrnam(groupName!);
+            if (grp == IntPtr.Zero) throw new Exception($"Group not found: {groupName}");
+            gid = Marshal.PtrToStructure<Group>(grp).gr_gid;
+        }
+        if (fchown((int)handle.DangerousGetHandle(), uid, gid) != 0) throw new Exception($"fchown failed. errno={Marshal.GetLastWin32Error()}");
+    }
+
+    /// <summary>Sets the permissions of an open file by its handle (fchmod).</summary>
+    [SupportedOSPlatform("linux")]
+    [SupportedOSPlatform("macos")]
+    [SupportedOSPlatform("freebsd")]
+    public static void SetFilePermissions(SafeFileHandle handle, UnixFileMode mode)
+    {
+        if (fchmod((int)handle.DangerousGetHandle(), (uint)mode) != 0) throw new Exception($"fchmod failed. errno={Marshal.GetLastWin32Error()}");
+    }
+
+    /// <summary>
+    /// rename(2): atomically makes <paramref name="newPath"/> the file <paramref name="oldPath"/>. What was at <paramref name="newPath"/>,
+    /// even a symbolic link or a hard link, is only unlinked: the file it pointed to is not touched.
+    /// </summary>
+    public static void Rename(string oldPath, string newPath)
+    {
+        if (rename(oldPath, newPath) != 0)
+        {
+            var errno = Marshal.GetLastWin32Error();
+            var message = new System.ComponentModel.Win32Exception(errno).Message + $": '{newPath}'";
+            if (errno == EACCES || errno == EPERM) throw new UnauthorizedAccessException(message);
+            throw new IOException(message, errno);
+        }
+    }
+
     [DllImport("libc")]
     static extern IntPtr getpwuid(uint uid);
 
@@ -231,7 +447,11 @@ public class Unix
         // record has the layout they assume, instead of trusting an owner that may have been read from the wrong place.
         var mode = (uint)GetFilePermissions(path);
         var (uid, gid) = OSInfo.IsMac ? UnixMac.GetIds(path, mode) : UnixLinux.GetIds(path, mode);
+        return Names(uid, gid);
+    }
 
+    static (string Owner, string Group) Names(uint uid, uint gid)
+    {
         string owner = uid.ToString();
         string group = gid.ToString();
 
@@ -270,10 +490,25 @@ internal static class UnixMac
 
     [DllImport("libc", EntryPoint = "stat", SetLastError = true)]
     static extern int stat(string path, byte[] buffer);
+    [DllImport("libc", EntryPoint = "fstat$INODE64", SetLastError = true)]
+    static extern int fstat64(int fd, byte[] buffer);
+
+    [DllImport("libc", EntryPoint = "fstat", SetLastError = true)]
+    static extern int fstat(int fd, byte[] buffer);
+
     public static (uint Uid, uint Gid) GetIds(string path, uint expectedMode)
     {
         var buffer = new byte[BufferSize];
         var result = RuntimeInformation.ProcessArchitecture == Architecture.X64 ? stat64(path, buffer) : stat(path, buffer);
+        if (result != 0) throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+        return Parse(buffer, expectedMode);
+    }
+
+    /// <summary>The ids of an open file (by file descriptor), which cannot be replaced by another file behind the caller's back.</summary>
+    public static (uint Uid, uint Gid) GetIds(int fd, uint expectedMode)
+    {
+        var buffer = new byte[BufferSize];
+        var result = RuntimeInformation.ProcessArchitecture == Architecture.X64 ? fstat64(fd, buffer) : fstat(fd, buffer);
         if (result != 0) throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
         return Parse(buffer, expectedMode);
     }
@@ -308,7 +543,34 @@ internal static class UnixLinux
     [DllImport("libc", EntryPoint = "stat", SetLastError = true)]
     static extern int stat(string path, byte[] buffer);
 
+    [DllImport("libc", EntryPoint = "fstat", SetLastError = true)]
+    static extern int fstat(int fd, byte[] buffer);
+
+    const int AT_EMPTY_PATH = 0x1000;
+
     static bool statxAvailable = true;
+
+    /// <summary>The ids of an open file (by file descriptor), which cannot be replaced by another file behind the caller's back.</summary>
+    public static (uint Uid, uint Gid) GetIds(int fd, uint expectedMode)
+    {
+        if (statxAvailable)
+        {
+            try
+            {
+                var buffer = new byte[BufferSize];
+                // an empty path with AT_EMPTY_PATH makes statx describe the file the descriptor refers to
+                if (statx(fd, "", AT_EMPTY_PATH, STATX_MODE | STATX_UID | STATX_GID, buffer) != 0) throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+                return ParseStatx(buffer, expectedMode);
+            }
+            catch (EntryPointNotFoundException)
+            {
+                statxAvailable = false; // this libc is too old for statx
+            }
+        }
+        var stat = new byte[BufferSize];
+        if (fstat(fd, stat) != 0) throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+        return ParseStat(stat, RuntimeInformation.ProcessArchitecture, expectedMode);
+    }
 
     public static (uint Uid, uint Gid) GetIds(string path, uint expectedMode)
     {

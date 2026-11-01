@@ -66,6 +66,36 @@ public class WindowsAccountsTests
     }
 
     [SkippableFact]
+    public void A_group_is_created_once_and_starts_empty()
+    {
+        RequireWindows();
+        // Creates and deletes a local group on this machine, so it only runs when asked, as an administrator.
+        Skip.IfNot(Environment.GetEnvironmentVariable("ASPNETSERVER_ACCOUNTS") == "1", "Opt-in: set ASPNETSERVER_ACCOUNTS=1 (creates and deletes a local group).");
+        Skip.IfNot(WindowsFileSecurity.IsAdministrator(), "Creating a group needs administrator rights.");
+        var group = "aspsrv-test-" + Guid.NewGuid().ToString("N").Substring(0, 8);
+        Assert.False(WindowsAccounts.GroupExists(group));
+        try
+        {
+            Assert.True(WindowsAccounts.EnsureGroup(group, "test group of AspNetCoreSharedServer"));
+            Assert.True(WindowsAccounts.GroupExists(group));
+            Assert.False(WindowsAccounts.EnsureGroup(group)); // already there: nothing to do
+            Assert.False(WindowsAccounts.IsUserInGroup(Environment.UserName, group)); // nobody is added
+        }
+        finally
+        {
+            if (WindowsAccounts.GroupExists(group)) WindowsAccounts.DeleteGroup(group);
+        }
+        Assert.False(WindowsAccounts.GroupExists(group));
+    }
+
+    [SkippableFact]
+    public void A_group_name_of_a_domain_is_refused()
+    {
+        RequireWindows();
+        Assert.Throws<ArgumentException>(() => WindowsAccounts.EnsureGroup("EXAMPLE\\aspnet-server"));
+    }
+
+    [SkippableFact]
     public void The_current_account_is_recognised()
     {
         RequireWindows();

@@ -47,7 +47,23 @@ internal static class WindowsFileSecurity
         {
             return $"its permissions cannot be read ({ex.Message})";
         }
+        return Check(security, user);
+    }
 
+    /// <summary>
+    /// The permissions and owner of an open file, read from its handle and not from its path: what is checked is then the file that is
+    /// read, whatever happens to the path afterwards. Null if they cannot be read.
+    /// </summary>
+    internal static FileSecurity? Snapshot(FileStream stream)
+    {
+        try { return stream.GetAccessControl(); }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException) { return null; }
+    }
+
+    /// <summary><see cref="Check(string, string?)"/> for permissions that were read before; null permissions are a problem.</summary>
+    public static string? Check(FileSecurity? security, string? user)
+    {
+        if (security == null) return "its permissions cannot be read";
         var allowed = UserSid(user);
         if (security.GetOwner(typeof(SecurityIdentifier)) is not SecurityIdentifier owner)
         {
@@ -71,12 +87,15 @@ internal static class WindowsFileSecurity
     /// <summary>True if the file is owned by an administrator or SYSTEM, the counterpart of "owned by root".</summary>
     public static bool IsOwnedByAdministrators(string path)
     {
-        try
-        {
-            var owner = new FileInfo(path).GetAccessControl(AccessControlSections.Owner).GetOwner(typeof(SecurityIdentifier)) as SecurityIdentifier;
-            return owner != null && (owner == LocalSystem || owner == Administrators || owner == TrustedInstaller);
-        }
+        try { return IsOwnedByAdministrators(new FileInfo(path).GetAccessControl(AccessControlSections.Owner)); }
         catch (Exception ex) when (ex is UnauthorizedAccessException or IOException) { return false; }
+    }
+
+    /// <summary><see cref="IsOwnedByAdministrators(string)"/> for permissions that were read before.</summary>
+    public static bool IsOwnedByAdministrators(FileSecurity? security)
+    {
+        var owner = security?.GetOwner(typeof(SecurityIdentifier)) as SecurityIdentifier;
+        return owner != null && (owner == LocalSystem || owner == Administrators || owner == TrustedInstaller);
     }
 
     /// <summary>

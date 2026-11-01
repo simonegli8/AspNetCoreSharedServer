@@ -7,8 +7,8 @@ namespace AspNetCoreSharedServer.Tests;
 
 /// <summary>
 /// The real server (<c>dotnet AspNetCoreSharedServer.dll</c>) running in a temporary folder with its own configuration.json,
-/// with the test app as its only application. On Windows the server reads its configuration from the current directory,
-/// which is what makes this safe: the machine's real configuration is never touched.
+/// with the test app as its only application. The server is told where its configuration is (<c>--config-dir</c>), which is
+/// what makes this safe: the machine's real configuration is never touched.
 /// </summary>
 internal sealed class ServerHost : IAsyncDisposable
 {
@@ -73,8 +73,10 @@ internal sealed class ServerHost : IAsyncDisposable
         var configurationFile = Path.Combine(directory, "configuration.json");
         File.WriteAllText(configurationFile, JsonSerializer.Serialize(configuration));
         // The server only loads a configuration.json that nobody but the administrators and SYSTEM can change (the user in the file is
-        // not known yet when it is read), so on Windows it has to run elevated to read it.
+        // not known yet when it is read), so on Windows it has to run elevated to read it. On Unix a file of the user that the server
+        // runs as, that nobody else can write, is enough.
         if (OperatingSystem.IsWindows()) WindowsFileSecurity.Protect(configurationFile, null);
+        else File.SetUnixFileMode(configurationFile, System.IO.UnixFileMode.UserRead | System.IO.UnixFileMode.UserWrite);
 
         var info = new ProcessStartInfo("dotnet")
         {
@@ -85,8 +87,9 @@ internal sealed class ServerHost : IAsyncDisposable
             CreateNoWindow = true,
         };
         info.ArgumentList.Add(TestPaths.ServerDll);
-        // On Windows the server reads its configuration from %ProgramData%spnet-server, never from here, unless it is told where.
-        info.Environment[Configuration.ConfigDirectoryVariable] = directory;
+        // The server reads its configuration from its fixed folder (%ProgramData%\aspnet-server, /etc/aspnet-server), never from here, unless it is told where.
+        info.ArgumentList.Add(Configuration.ConfigDirectoryOption);
+        info.ArgumentList.Add(directory);
         var process = new Process { StartInfo = info };
         var host = new ServerHost(port, directory, process);
         process.OutputDataReceived += (_, e) => host.Append(e.Data);

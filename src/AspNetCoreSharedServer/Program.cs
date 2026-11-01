@@ -16,26 +16,36 @@ public class Program
         Console.WriteLine($"aspnet-server {Server.Version}");
     }
 
-    static AsyncMutexLock applockmutex = new AsyncMutexLock("AspNetCoreSharedServer.AssertOnlyOneInstance", MutexScope.Machine);
+    // The lock file is in the protected configuration folder (see LockFiles), so the lock is made once --config-dir has been read.
+    static AsyncMutexLock? applockmutex = null;
     static IDisposable? applock = null;
     
     private static async Task AssertOnlyOneInstance()
     {
         try
         {
+            applockmutex = new AsyncMutexLock(LockFiles.PathFor("AspNetCoreSharedServer.AssertOnlyOneInstance"));
             applock = await applockmutex.LockAsync(TimeSpan.Zero);
         } catch (TimeoutException)
         {
             Console.WriteLine("Another instance of aspnet-server is already running.");
             Environment.Exit(-10);
+        } catch (UnauthorizedAccessException ex)
+        {
+            // Not "already running": this user may not use the lock at all.
+            Console.WriteLine(ex.Message);
+            Environment.Exit(-11);
         }
-        AppDomain.CurrentDomain.ProcessExit += (_,_) => applock.Dispose();
+        AppDomain.CurrentDomain.ProcessExit += (_,_) => applock?.Dispose();
     }
     public static async Task Main(string[] args)
     {
         try
         {
             if (args.Length > 0 && args[0].EndsWith(".dll", StringComparison.OrdinalIgnoreCase)) args = args.Skip(1).ToArray();
+
+            // --config-dir <folder> may come anywhere on the command line, for the server and for the commands alike
+            args = Configuration.TakeConfigDirectory(args);
 
             if (args.Contains("-debug", StringComparer.OrdinalIgnoreCase))
             {
@@ -401,7 +411,11 @@ possible values for argument:
 - enable: Enables the system service.
 - disable: Disables the system service.
 - status: Shows the status of the service, or the application pool if argument2 is specified,
-  or of all application pools if 'all' is specified as argument2.");
+  or of all application pools if 'all' is specified as argument2.
+
+and with any of them:
+- --config-dir <folder>: Use another configuration folder than the fixed one (/etc/aspnet-server, or %ProgramData%\aspnet-server
+  on Windows). For tests and trials; a service never has it.");
                 return;
             }
         }

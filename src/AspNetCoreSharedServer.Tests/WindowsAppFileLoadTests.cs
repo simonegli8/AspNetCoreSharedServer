@@ -5,7 +5,7 @@ using Xunit;
 
 namespace AspNetCoreSharedServer.Tests;
 
-/// <summary>Tests that change the configuration folder of the process (an environment variable): nothing else may run meanwhile.</summary>
+/// <summary>Tests that change the configuration folder of the process (a static setting): nothing else may run meanwhile.</summary>
 [CollectionDefinition("Working directory", DisableParallelization = true)]
 public class WorkingDirectoryCollection { }
 
@@ -18,21 +18,21 @@ public class WorkingDirectoryCollection { }
 public class WindowsAppFileLoadTests : IDisposable
 {
     readonly string folder = Path.Combine(Path.GetTempPath(), "aspsrv-load-" + Guid.NewGuid().ToString("N"));
-    readonly string? previousConfigDirectory = Environment.GetEnvironmentVariable(Configuration.ConfigDirectoryVariable);
+    readonly string? previousConfigDirectory = Configuration.ConfigDirectoryOverride;
 
     public WindowsAppFileLoadTests()
     {
         if (!OperatingSystem.IsWindows()) return;
         Directory.CreateDirectory(folder);
-        // The server reads (and saves) its configuration from this folder instead of %ProgramData%spnet-server.
-        Environment.SetEnvironmentVariable(Configuration.ConfigDirectoryVariable, folder);
+        // The server reads (and saves) its configuration from this folder instead of %ProgramData%\aspnet-server.
+        Configuration.ConfigDirectoryOverride = folder;
         // Never go on if the tests could end up in the real configuration: they save, and they change permissions.
         Assert.StartsWith(folder, new Configuration().ConfigPath);
     }
 
     public void Dispose()
     {
-        Environment.SetEnvironmentVariable(Configuration.ConfigDirectoryVariable, previousConfigDirectory);
+        Configuration.ConfigDirectoryOverride = previousConfigDirectory;
         if (!Directory.Exists(folder)) return;
         try { Directory.Delete(folder, true); }
         catch (UnauthorizedAccessException)
@@ -237,5 +237,82 @@ public class WindowsAppFileLoadTests : IDisposable
         config.Save(true, false);
 
         Assert.Contains("For security reasons, the configuration.json", config.Error);
+    }
+
+    static void CreateLink(string link, string target)
+    {
+        try { File.CreateSymbolicLink(link, target); }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException) { Skip.If(true, "Cannot create a symbolic link here: " + ex.Message); }
+    }
+
+    [SkippableFact]
+    public void A_configuration_json_that_is_a_symbolic_link_is_not_loaded_and_the_target_is_left_alone()
+    {
+        RequireWindows();
+        var target = Path.Combine(Path.GetTempPath(), "aspsrv-target-" + Guid.NewGuid().ToString("N") + ".json");
+        const string content = "{ \"Applications\": [] }";
+        File.WriteAllText(target, content);
+        try
+        {
+            WindowsFileSecurity.Protect(target, Environment.UserName);
+            CreateLink(ConfigFile, target);
+
+            var config = new Configuration { User = Environment.UserName }.LoadConfig();
+
+            Assert.Null(config);
+            Assert.Equal(content, File.ReadAllText(target)); // nothing was written through the link
+        }
+        finally { File.Delete(target); }
+    }
+
+    [SkippableFact]
+    public void Saving_replaces_a_symbolic_link_instead_of_writing_through_it()
+    {
+        RequireWindows();
+        var target = Path.Combine(Path.GetTempPath(), "aspsrv-target-" + Guid.NewGuid().ToString("N") + ".json");
+        const string content = "{ \"untouched\": true }";
+        File.WriteAllText(target, content);
+        try
+        {
+            CreateLink(ConfigFile, target);
+            WriteApp("Linked", Environment.UserName, protect: true);
+            var linkedApp = Path.Combine(folder, "Linked.json");
+            var config = new Configuration
+            {
+                User = Environment.UserName,
+                Applications = new Applications { new Application { Name = "Linked", Assembly = @"C:\no\Linked.dll", IsSeparateFile = true } },
+            };
+            // the app file is a link too
+            File.Delete(linkedApp);
+            CreateLink(linkedApp, target);
+
+            config.Save(true, false);
+
+            Assert.Equal(content, File.ReadAllText(target)); // nothing was written through either link
+            Assert.Equal(0, (int)(File.GetAttributes(ConfigFile) & FileAttributes.ReparsePoint));
+            Assert.Equal(0, (int)(File.GetAttributes(linkedApp) & FileAttributes.ReparsePoint));
+            Assert.Contains("Linked", File.ReadAllText(linkedApp));
+        }
+        finally { File.Delete(target); }
+    }
+
+    [SkippableFact]
+    public void An_app_file_that_is_a_symbolic_link_is_not_loaded()
+    {
+        RequireWindows();
+        var target = Path.Combine(Path.GetTempPath(), "aspsrv-target-" + Guid.NewGuid().ToString("N") + ".json");
+        File.WriteAllText(target, """{ "Name": "Linked", "Assembly": "C:\\no\\Linked.dll", "ListenUrls": "http://localhost:0", "Urls": "http://example.org" }""");
+        try
+        {
+            WindowsFileSecurity.Protect(target, Environment.UserName);
+            CreateLink(Path.Combine(folder, "Linked.json"), target);
+            WriteApp("Good", Environment.UserName, protect: true);
+
+            var config = Load();
+
+            Assert.Null(config.Applications!["Linked"]);
+            Assert.NotNull(config.Applications["Good"]);
+        }
+        finally { File.Delete(target); }
     }
 }

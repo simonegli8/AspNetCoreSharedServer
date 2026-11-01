@@ -60,6 +60,12 @@
         <Compile Include="../AspNetCoreSharedServer/WindowsAccounts.cs">
             <Link>WindowsAccounts.cs</Link>
         </Compile>
+        <Compile Include="../AspNetCoreSharedServer/LockFiles.cs">
+            <Link>LockFiles.cs</Link>
+        </Compile>
+        <Compile Include="../AspNetCoreSharedServer/SecureFile.cs">
+            <Link>SecureFile.cs</Link>
+        </Compile>
         <Compile Include="../AspNetCoreSharedServer/WindowsFileSecurity.cs">
             <Link>WindowsFileSecurity.cs</Link>
         </Compile>

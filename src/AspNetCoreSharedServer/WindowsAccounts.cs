@@ -39,6 +39,13 @@ internal static class WindowsAccounts
         public string lgrui0_name;
     }
 
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    struct LOCALGROUP_INFO_1
+    {
+        public string lgrpi1_name;
+        public string? lgrpi1_comment;
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     struct LSA_UNICODE_STRING
     {
@@ -73,6 +80,12 @@ internal static class WindowsAccounts
 
     [DllImport("netapi32.dll", CharSet = CharSet.Unicode)]
     static extern int NetUserDel(string? server, string username);
+
+    [DllImport("netapi32.dll", CharSet = CharSet.Unicode)]
+    static extern int NetLocalGroupAdd(string? server, int level, ref LOCALGROUP_INFO_1 buffer, out int parmError);
+
+    [DllImport("netapi32.dll", CharSet = CharSet.Unicode)]
+    static extern int NetLocalGroupDel(string? server, string groupname);
 
     [DllImport("netapi32.dll")]
     static extern int NetApiBufferFree(IntPtr buffer);
@@ -174,6 +187,31 @@ internal static class WindowsAccounts
             throw;
         }
         return true;
+    }
+
+    /// <summary>
+    /// Creates the local group <paramref name="group"/>, unless it exists, the counterpart of <c>groupadd</c>. It starts empty: who
+    /// belongs to it is up to the administrator. Needs administrator rights. Returns true if the group was created.
+    /// </summary>
+    public static bool EnsureGroup(string group, string? comment = null)
+    {
+        var name = LocalName(group) ?? throw new ArgumentException($"'{group}' is not a local group name.", nameof(group));
+        if (GroupExists(name)) return false;
+
+        const int ERROR_ALIAS_EXISTS = 1379; // somebody else created it in the meantime
+        var info = new LOCALGROUP_INFO_1 { lgrpi1_name = name, lgrpi1_comment = comment };
+        var status = NetLocalGroupAdd(null, 1, ref info, out var parameterError);
+        if (status == ERROR_ALIAS_EXISTS) return false;
+        if (status != NERR_Success) throw new Win32Exception(status, $"Could not create group '{name}' (NetLocalGroupAdd: {status}, parameter {parameterError}).");
+        return true;
+    }
+
+    /// <summary>Deletes the local group. Used by the tests; the server never deletes a group.</summary>
+    public static void DeleteGroup(string group)
+    {
+        var name = LocalName(group) ?? throw new ArgumentException($"'{group}' is not a local group name.", nameof(group));
+        var status = NetLocalGroupDel(null, name);
+        if (status != NERR_Success) throw new Win32Exception(status, $"Could not delete group '{name}' (NetLocalGroupDel: {status}).");
     }
 
     /// <summary>Deletes the local account. Used by the tests; the server never deletes an account.</summary>

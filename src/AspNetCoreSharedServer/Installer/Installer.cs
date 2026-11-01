@@ -65,6 +65,7 @@ public class Installer
     [SupportedOSPlatform("freebsd")]
     public static async Task AddUnixGroup(string group)
     {
+        if (Unix.GroupExists(group)) return; // groupadd would only fail
 
         if (OSInfo.OSFlavor == OSFlavor.Alpine)
         {
@@ -90,6 +91,28 @@ public class Installer
         else
         {
             await Shell.ExecAsync($"groupadd {group}");
+        }
+    }
+
+    /// <summary>
+    /// Creates the group of the people who may create applications (<see cref="AdminGroup"/>) if it does not exist yet: the server gives
+    /// its configuration folder to it, which fails without the group. It is done on every install, not only the first, so that a machine
+    /// that never had the group, or lost it, gets it. The group starts empty (the administrator adds the people) and uninstalling leaves
+    /// it alone, because it holds people and not only the server's settings.
+    /// </summary>
+    public static async Task EnsureAdminGroup()
+    {
+        if (OSInfo.IsWindows)
+        {
+            if (WindowsAccounts.EnsureGroup(AdminGroup, "People who may create applications of ASP.NET Core Shared Server"))
+            {
+                Console.WriteLine($"Created group {AdminGroup}");
+            }
+        }
+        else if (!Unix.GroupExists(AdminGroup))
+        {
+            await AddUnixGroup(AdminGroup);
+            Console.WriteLine(Unix.GroupExists(AdminGroup) ? $"Created group {AdminGroup}" : $"Could not create group {AdminGroup}.");
         }
     }
 
@@ -184,8 +207,10 @@ public class Installer
 
     public static async Task Install()
     {
+        await EnsureAdminGroup();
+
         // Remove old aspnetcore-shared-server
-        if (File.Exists(Configuration.Current.ConfigPathOld))
+        if (Configuration.Current.HasOldConfig)
         {
             // import old config path /etc/aspnetcore if it exists to /etc/aspnet-server
             var path = Path.GetDirectoryName(Configuration.Current.ConfigPath)!;
@@ -229,7 +254,6 @@ public class Installer
             if (!OSInfo.IsWindows)
             {
                 await AddUnixGroup(WwwData);
-                await AddUnixGroup(AdminGroup);
                 await AddUnixUser(WwwData, WwwData, GetRandomString(16));
             }
             var configfile = Configuration.Current.ConfigPath;
@@ -239,7 +263,9 @@ public class Installer
                 System.IO.Directory.CreateDirectory(configpath);
                 Configuration.Current.Save();
 
-                if (AllowOnlyRootToCreateApplications)
+                // On Windows Save has protected the folder and the file.
+                if (OSInfo.IsWindows) { }
+                else if (AllowOnlyRootToCreateApplications)
                 {
                     Unix.SetFilePermissions(configpath,
                         UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
@@ -254,8 +280,11 @@ public class Installer
                         UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.GroupExecute);
                 }  else throw new NotSupportedException("Either only root or only admins must be allowed to create applications.");
 
-                Unix.SetOwnerAndGroup(configpath, "root", AdminGroup);
-                Unix.SetOwnerAndGroup(configfile, "root", AdminGroup);
+                if (!OSInfo.IsWindows)
+                {
+                    Unix.SetOwnerAndGroup(configpath, "root", AdminGroup);
+                    Unix.SetOwnerAndGroup(configfile, "root", AdminGroup);
+                }
             }
 
             var conf = Configuration.Current;
