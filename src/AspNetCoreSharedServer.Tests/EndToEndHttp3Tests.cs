@@ -12,6 +12,7 @@ namespace AspNetCoreSharedServer.Tests;
 /// QUIC support in the OS, and the ASP.NET Core HTTPS development certificate (<c>dotnet dev-certs https</c>).
 /// </summary>
 [Trait("Category", "EndToEnd")]
+[Collection("Server process")] // the server allows one instance per machine, so the end-to-end tests run one after the other
 public class EndToEndHttp3Tests
 {
     static void RequirePrerequisites()

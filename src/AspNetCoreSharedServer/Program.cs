@@ -190,7 +190,11 @@ public class Program
                 if (args[0].Equals("enable", StringComparison.OrdinalIgnoreCase))
                 {
                     Installer.ServiceController.Enable(Installer.ServiceId);
-                    Console.WriteLine("aspnet-server enabled");
+                    if (Installer.ServiceController.Info(Installer.ServiceId)?.Status == OSServiceStatus.Running)
+                    {
+                        Console.WriteLine("aspnet-server enabled");
+                    }
+                    else Console.WriteLine("Failed to enable aspnet-server.");
                     return;
                 }
                 if (args[0].Equals("disable", StringComparison.OrdinalIgnoreCase))
@@ -210,7 +214,11 @@ public class Program
                         }
                     }
                     Installer.ServiceController.Disable(Installer.ServiceId);
-                    Console.WriteLine("aspnet-server disabled");
+                    if (Installer.ServiceController.Info(Installer.ServiceId)?.Status == OSServiceStatus.Paused)
+                    {
+                        Console.WriteLine("aspnet-server disabled");
+                    }
+                    else Console.WriteLine("Failed to disable aspnet-server");
                     return;
                 }
 
@@ -295,10 +303,46 @@ public class Program
                     if (args.Length == 1)
                     {
                         var info = Installer.ServiceController.Info(Installer.ServiceId);
-                        Console.WriteLine(info?.Status.ToString() ?? "aspnet-server is not installed.");
+                        if (info != null)
+                        {
+                            Console.WriteLine($"aspnet-core server is {info.Status.ToString()}");
+                        }
+                        else
+                        {
+                            Console.WriteLine("aspnet-server is not installed.");
+                        }
+                        using var mutex = await AspServer.LockAsync();
+
+                        var conf = AspServer.Configuration.LoadConfig();
+                        if (conf == null)
+                        {
+                            Console.WriteLine("Error loading configuration.");
+                            return;
+                        }
+                        if (conf.Applications != null && conf.Applications.Count > 0)
+                        {
+                            foreach (var app in conf.Applications)
+                            {
+                                if (info == null || info.Status == OSServiceStatus.Stopped)
+                                {
+                                    Console.WriteLine($"Application pool {app.Name} is offline and its status is '{(app.Status == Status.Error ? "Error" : "Stopped")}'.");
+                                    if (!string.IsNullOrEmpty(app.Error)) Console.WriteLine($"Error: {app.Error}");
+
+                                }
+                                else
+                                {
+                                    Console.WriteLine($"Application pool {app.Name} is {(app.Offline ? "offline" : $"online")} and its status is '{app.Status}'.");
+                                    if (!string.IsNullOrEmpty(app.Error)) Console.WriteLine($"Error: {app.Error}");
+                                }
+                            }
+                        }
+                        else Console.WriteLine("No applications defined.");
                     }
                     else
                     {
+                        var info = Installer.ServiceController.Info(Installer.ServiceId);
+                        if (info == null) Console.WriteLine("aspnet-server is not installed.");
+
                         var apppool = args[1];
                         using var mutex = await AspServer.LockAsync();
                         try
@@ -309,32 +353,13 @@ public class Program
                                 Console.WriteLine("Error loading configuration.");
                                 return;
                             }
-                            if (apppool != "all")
+                            var app = conf.Applications?[apppool];
+                            if (app == null)
                             {
-                                var app = conf.Applications?[apppool];
-                                if (app == null)
-                                {
-                                    Console.WriteLine($"Application pool {apppool} not found.");
-                                }
-                                else
-                                {
-                                    Console.WriteLine($"Application pool {apppool} is {(app.Offline ? "offline" : $"online")} and its status is '{app.Status}'.");
-                                    if (!string.IsNullOrEmpty(app.Error)) Console.WriteLine($"Error: {app.Error}");
-                                }
-                            } else
-                            {
-                                if (conf.Applications != null) 
-                                {
-                                    foreach (var app in conf.Applications)
-                                    {
-                                        Console.WriteLine($"Application pool {app.Name} is {(app.Offline ? "offline" : $"online")} and its status is '{app.Status}'.");
-                                        if (!string.IsNullOrEmpty(app.Error)) Console.WriteLine($"Error: {app.Error}");
-                                    }
-                                } else
-                                {
-                                    Console.WriteLine("No applications defined.");
-                                }
+                                Console.WriteLine($"Application pool {apppool} not found.");
                             }
+                            Console.WriteLine($"Application pool {app.Name} is {(app.Offline ? "offline" : $"online")} and its status is '{app.Status}'.");
+                            if (!string.IsNullOrEmpty(app.Error)) Console.WriteLine($"Error: {app.Error}");
                         }
                         catch (Exception ex)
                         {

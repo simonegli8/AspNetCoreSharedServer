@@ -6,153 +6,202 @@ using System.Threading.Tasks;
 using AspNetCoreSharedServer.Util;
 using System.ServiceProcess;
 
-namespace AspNetCoreSharedServer.Services
+namespace AspNetCoreSharedServer.Services;
+
+public class WindowsServiceController : ServiceController
 {
-	public class WindowsServiceController : ServiceController
-	{
-        #region Windows Services Management
-        public OSService[] GetOSServices()
+    #region Windows Services Management
+    public OSService[] GetOSServices()
+    {
+        try
         {
-            try
-            {
-                List<OSService> winServices = new List<OSService>();
+            List<OSService> winServices = new List<OSService>();
 
-                System.ServiceProcess.ServiceController[] services = System.ServiceProcess.ServiceController.GetServices();
-                foreach (var service in services)
+            System.ServiceProcess.ServiceController[] services = System.ServiceProcess.ServiceController.GetServices();
+            foreach (var service in services)
+            {
+                OSService winService = new OSService();
+                winService.Id = service.ServiceName;
+                winService.Name = service.DisplayName;
+                winService.Description = service.DisplayName;
+                winService.CanStop = service.CanStop;
+                winService.CanPauseAndContinue = service.CanPauseAndContinue;
+
+                OSServiceStatus status = OSServiceStatus.ContinuePending;
+                switch (service.Status)
                 {
-                    OSService winService = new OSService();
-                    winService.Id = service.ServiceName;
-                    winService.Name = service.DisplayName;
-                    winService.Description = service.DisplayName;
-                    winService.CanStop = service.CanStop;
-                    winService.CanPauseAndContinue = service.CanPauseAndContinue;
-
-                    OSServiceStatus status = OSServiceStatus.ContinuePending;
-                    switch (service.Status)
-                    {
-                        case ServiceControllerStatus.ContinuePending: status = OSServiceStatus.ContinuePending; break;
-                        case ServiceControllerStatus.Paused: status = OSServiceStatus.Paused; break;
-                        case ServiceControllerStatus.PausePending: status = OSServiceStatus.PausePending; break;
-                        case ServiceControllerStatus.Running: status = OSServiceStatus.Running; break;
-                        case ServiceControllerStatus.StartPending: status = OSServiceStatus.StartPending; break;
-                        case ServiceControllerStatus.Stopped: status = OSServiceStatus.Stopped; break;
-                        case ServiceControllerStatus.StopPending: status = OSServiceStatus.StopPending; break;
-                    }
-                    winService.Status = status;
-
-                    winServices.Add(winService);
+                    case ServiceControllerStatus.ContinuePending: status = OSServiceStatus.ContinuePending; break;
+                    case ServiceControllerStatus.Paused: status = OSServiceStatus.Paused; break;
+                    case ServiceControllerStatus.PausePending: status = OSServiceStatus.PausePending; break;
+                    case ServiceControllerStatus.Running: status = OSServiceStatus.Running; break;
+                    case ServiceControllerStatus.StartPending: status = OSServiceStatus.StartPending; break;
+                    case ServiceControllerStatus.Stopped: status = OSServiceStatus.Stopped; break;
+                    case ServiceControllerStatus.StopPending: status = OSServiceStatus.StopPending; break;
                 }
+                winService.Status = status;
 
-                return winServices.ToArray();
+                winServices.Add(winService);
             }
-            catch
+
+            return winServices.ToArray();
+        }
+        catch
+        {
+            throw;
+        }
+    }
+
+    public void ChangeOSServiceStatus(string id, OSServiceStatus status)
+    {
+        try
+        {
+            // get all services
+            System.ServiceProcess.ServiceController[] services = System.ServiceProcess.ServiceController.GetServices();
+
+            // find required service
+            var service = services.FirstOrDefault(srvc => string.Compare(srvc.ServiceName, id, true) == 0);
+            if (service == null) throw new InvalidOperationException($"Service {id} does not exist.");
+
+            if (status == OSServiceStatus.Paused
+                && service.Status == ServiceControllerStatus.Running)
             {
-                throw;
+                service.Pause();
+                service.WaitForStatus(ServiceControllerStatus.Paused, TimeSpan.FromSeconds(60));
+            }
+            else if (status == OSServiceStatus.Running
+                && service.Status == ServiceControllerStatus.Stopped)
+            {
+                service.Start();
+                service.WaitForStatus(ServiceControllerStatus.Running, TimeSpan.FromSeconds(60));
+            }
+            else if (status == OSServiceStatus.Stopped
+                && ((service.Status == ServiceControllerStatus.Running) ||
+                    (service.Status == ServiceControllerStatus.Paused)))
+            {
+                service.Stop();
+                service.WaitForStatus(ServiceControllerStatus.Stopped, TimeSpan.FromSeconds(60));
+            }
+            else if (status == OSServiceStatus.ContinuePending
+                && service.Status == ServiceControllerStatus.Paused)
+            {
+                service.Continue();
+                service.WaitForStatus(ServiceControllerStatus.Running, TimeSpan.FromSeconds(60));
             }
         }
-
-        public void ChangeOSServiceStatus(string id, OSServiceStatus status)
+        catch
         {
-            try
-            {
-                // get all services
-                System.ServiceProcess.ServiceController[] services = System.ServiceProcess.ServiceController.GetServices();
-
-                // find required service
-                foreach (var service in services)
-                {
-                    if (String.Compare(service.ServiceName, id, true) == 0)
-                    {
-                        if (status == OSServiceStatus.Paused
-                            && service.Status == ServiceControllerStatus.Running)
-                        {
-                            service.Pause();
-                            service.WaitForStatus(ServiceControllerStatus.Paused, TimeSpan.FromSeconds(60));
-                        }
-                        else if (status == OSServiceStatus.Running
-                            && service.Status == ServiceControllerStatus.Stopped)
-                        {
-                            service.Start();
-                            service.WaitForStatus(ServiceControllerStatus.Running, TimeSpan.FromSeconds(60));
-                        }
-                        else if (status == OSServiceStatus.Stopped
-                            && ((service.Status == ServiceControllerStatus.Running) ||
-                                (service.Status == ServiceControllerStatus.Paused)))
-                        {
-                            service.Stop();
-                            service.WaitForStatus(ServiceControllerStatus.Stopped, TimeSpan.FromSeconds(60));
-                        }
-                        else if (status == OSServiceStatus.ContinuePending
-                            && service.Status == ServiceControllerStatus.Paused)
-                        {
-                            service.Continue();
-                            service.WaitForStatus(ServiceControllerStatus.Running, TimeSpan.FromSeconds(60));
-                        }
-                    }
-                }
-            }
-            catch
-            {
-                throw;
-            }
+            throw;
         }
-        #endregion
+    }
+    #endregion
 
-        public WindowsServiceController()
-		{
-			if (OSInfo.IsCore)
-			{
-				System.Reflection.Assembly.Load("System.ServiceProcess.ServiceController");
-			}
-		}
-		public override bool IsInstalled => true;
+    public WindowsServiceController()
+    {
+        if (OSInfo.IsCore)
+        {
+            System.Reflection.Assembly.Load("System.ServiceProcess.ServiceController");
+        }
+    }
+    public override bool IsInstalled => true;
 
-		public override IEnumerable<OSService> All() => GetOSServices();
+    public override IEnumerable<OSService> All() => GetOSServices();
 
-		public override void ChangeStatus(string serviceId, OSServiceStatus status)
-		{
-			ChangeOSServiceStatus(serviceId, status);
-		}
+    public override void ChangeStatus(string serviceId, OSServiceStatus status)
+    {
+        ChangeOSServiceStatus(serviceId, status);
+    }
 
-		public override OSService Info(string serviceId)
-			=> All().Where(s => s.Id.Equals(serviceId, StringComparison.OrdinalIgnoreCase)).FirstOrDefault();
+    public override OSService Info(string serviceId)
+        => All().Where(s => s.Id.Equals(serviceId, StringComparison.OrdinalIgnoreCase)).FirstOrDefault();
 
-		public override ServiceManager Install(ServiceDescription service)
-		{
-			var winService = service as WindowsServiceDescription;
-			var cmd = $"sc.exe create {service.ServiceId} binPath= \"{service.Executable}\"";
-			if (winService != null)
-			{
-				if (!string.IsNullOrEmpty(winService.DisplayName)) cmd += $" DisplayName= \"{winService.DisplayName}\"";
-				if (winService.DependsOn != null && winService.DependsOn.Any())
-				{
-					cmd += $" depend= \"{string.Join("/", winService.DependsOn.Select(dep => dep.Trim()))}";
-				}
-				if (!string.IsNullOrEmpty(winService.Object))
-				{
-					cmd += $" obj= \"{winService.Object}\"";
-				}
-				if (winService.Type != WindowsServiceType.Own) cmd += $" type= {winService.Type.ToString().ToLower()}";
-				if (winService.Error != WindowsServiceErrorHandling.Normal) cmd += $" error= {winService.Error.ToString().ToLower()}";
-				if (winService.Start != WindowsServiceStartMode.Demand) cmd += $" start= {winService.Start.ToString().ToLower().Replace("delayedauto", "delayed-auto")}";
-				if (winService.Tag.HasValue) cmd += $" tag= {(winService.Tag.Value ? "yes" : "no")}";
-				if (!string.IsNullOrEmpty(winService.Group)) cmd += $" group= \"{winService.Group}\"";
-				if (!string.IsNullOrEmpty(winService.Password)) cmd += $" password= \"{winService.Password}\"";
-			}
-			Shell.Standard.Exec(cmd);
-			if (!string.IsNullOrEmpty(winService?.Description))
-			{
-				Shell.Standard.Exec($"sc.exe description {service.ServiceId} \"{winService.Description}\"");
+    private static string Escape(string argument)
+    {
+        if (argument == null) throw new ArgumentNullException(nameof(argument));
+
+        if (argument.Length == 0)
+            return "\"\"";
+
+        // No quoting necessary if there are no spaces, tabs or quotes.
+        if (!argument.Any(c => c is ' ' or '\t' or '"'))
+            return argument;
+
+        var result = new StringBuilder();
+        result.Append('"');
+
+        int backslashes = 0;
+
+        foreach (char c in argument)
+        {
+            if (c == '\\')
+            {
+                backslashes++;
+                continue;
             }
 
-            return new ServiceManager(this, service.ServiceId);
-		}
+            if (c == '"')
+            {
+                result.Append('\\', backslashes * 2 + 1);
+                result.Append('"');
+            }
+            else
+            {
+                result.Append('\\', backslashes);
+                result.Append(c);
+            }
 
-		public override void Remove(string serviceId)
-		{
-			Shell.Standard.Exec($"sc.exe delete {serviceId}");
-		}
+            backslashes = 0;
+        }
 
-		public override void SystemReboot() => Shell.Standard.Exec("shutdown.exe -r -t 0");
-	}
+        // Double trailing backslashes because they precede the closing quote.
+        result.Append('\\', backslashes * 2);
+        result.Append('"');
+
+        return result.ToString();
+    }
+    public override ServiceManager Install(ServiceDescription service)
+    {
+        var winService = service as WindowsServiceDescription;
+        var cmd = $"sc.exe create {Escape(service.ServiceId)} binPath= {Escape(service.Executable)}";
+        if (winService != null)
+        {
+            if (!string.IsNullOrEmpty(winService.DisplayName)) cmd += $" DisplayName= {Escape(winService.DisplayName)}";
+            if (winService.DependsOn != null && winService.DependsOn.Any())
+            {
+                cmd += $" depend= {Escape(string.Join("/", winService.DependsOn.Select(dep => dep.Trim())))}";
+            }
+            if (!string.IsNullOrEmpty(winService.Object))
+            {
+                cmd += $" obj= {Escape(winService.Object)}";
+            }
+            if (winService.Type != WindowsServiceType.Own) cmd += $" type= {winService.Type.ToString().ToLower()}";
+            if (winService.Error != WindowsServiceErrorHandling.Normal) cmd += $" error= {winService.Error.ToString().ToLower()}";
+            if (winService.Start != WindowsServiceStartMode.Demand) cmd += $" start= {winService.Start.ToString().ToLower().Replace("delayedauto", "delayed-auto")}";
+            if (winService.Tag.HasValue) cmd += $" tag= {(winService.Tag.Value ? "yes" : "no")}";
+            if (!string.IsNullOrEmpty(winService.Group)) cmd += $" group= {Escape(winService.Group)}";
+            if (!string.IsNullOrEmpty(winService.Password)) cmd += $" password= {Escape(winService.Password)}";
+        }
+        Shell.Standard.Exec(cmd);
+        if (!string.IsNullOrEmpty(winService?.Description))
+        {
+            Shell.Standard.Exec($"sc.exe description {service.ServiceId} {Escape(winService.Description)}");
+        }
+
+        return new ServiceManager(this, service.ServiceId);
+    }
+
+    public override void Remove(string serviceId)
+    {
+        Shell.Standard.Exec($"sc.exe delete {serviceId}");
+    }
+
+    public override void SystemReboot() => Shell.Standard.Exec("shutdown.exe -r -t 0");
+
+    public override void Enable(string serviceId)
+    {
+        Shell.Standard.Exec($"sc.exe config {serviceId} start= auto");
+    }
+    public override void Disable(string serviceId)
+    {
+        Shell.Standard.Exec($"sc.exe config {serviceId} start= demand");
+    }
 }

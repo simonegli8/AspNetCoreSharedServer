@@ -69,7 +69,7 @@ source as an error.
 
 `EndToEndHttp3Tests` start the real server with the real `AspNetCoreTestApp` behind it, and talk to it with a real HTTP/3
 client: discovery through `Alt-Svc`, an app that dies and is restarted, and HTTP/3 traffic keeping the app from being shut
-down as idle. They take about 40 seconds and only run when asked:
+down as idle. `AppPoolStopTests` also start the real server and run `aspnet-server stop` and `start` for an app pool (plain HTTP, no QUIC or certificate needed). They take about 40 seconds and only run when asked:
 
 ```
 set ASPNETSERVER_E2E=1

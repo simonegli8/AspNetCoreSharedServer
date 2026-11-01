@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -52,8 +53,16 @@ public class Installer
         return sb.ToString();
     }
 
-    public static bool UserExists(string username) => Unix.getpwnam(username) != IntPtr.Zero;
+    [SupportedOSPlatform("linux")]
+    [SupportedOSPlatform("macos")]
+    [SupportedOSPlatform("freebsd")]
+    public static bool UserExists(string username) => OSInfo.IsWindows ?
+        WindowsAccounts.UserExists(username) :
+        Unix.getpwnam(username) != IntPtr.Zero;
 
+    [SupportedOSPlatform("linux")]
+    [SupportedOSPlatform("macos")]
+    [SupportedOSPlatform("freebsd")]
     public static async Task AddUnixGroup(string group)
     {
 
@@ -83,6 +92,10 @@ public class Installer
             await Shell.ExecAsync($"groupadd {group}");
         }
     }
+
+    [SupportedOSPlatform("linux")]
+    [SupportedOSPlatform("macos")]
+    [SupportedOSPlatform("freebsd")]
     public static async Task AddUnixUser(string user, string group, string password)
     {
         if (!UserExists(user))
@@ -124,6 +137,8 @@ public class Installer
             Log?.LogInformation($"Added system user {user}.");
         }
     }
+
+
     static ServiceController? serviceController = null;
     public static ServiceController ServiceController
     {
@@ -164,7 +179,7 @@ public class Installer
             throw new Exception($"Failed to start {description.ServiceId} service.");
         }
 
-        Console.WriteLine($"Installed system service {description.ServiceId}");
+        Console.WriteLine($"Installed  {(OSInfo.IsWindows ? "windows" : "system")} service {description.ServiceId}");
     }
 
     public static async Task Install()
@@ -211,10 +226,12 @@ public class Installer
 
         if (!File.Exists(Configuration.Current.ConfigPath))
         {
-            await AddUnixGroup(WwwData);
-            await AddUnixGroup(AdminGroup);
-            await AddUnixUser(WwwData, WwwData, GetRandomString(16));
-
+            if (!OSInfo.IsWindows)
+            {
+                await AddUnixGroup(WwwData);
+                await AddUnixGroup(AdminGroup);
+                await AddUnixUser(WwwData, WwwData, GetRandomString(16));
+            }
             var configfile = Configuration.Current.ConfigPath;
             var configpath = Path.GetDirectoryName(configfile)!;
             if (!System.IO.Directory.Exists(configpath))
@@ -262,7 +279,11 @@ public class Installer
         }
         const string Description = "ASP.NET Core Shared Server support for shared hosting of ASP.NET Core applications";
         string Command;
-        if (OSInfo.IsWindows) Command = Path.ChangeExtension(Assembly.GetExecutingAssembly().Location, ".exe");
+        if (OSInfo.IsWindows)
+        {
+            var dotnet = Shell.Standard.Find("dotnet.exe");
+            Command = $"\"{dotnet}\" \"{Assembly.GetExecutingAssembly().Location}\"";
+        }
         else if (!OSInfo.IsMac) Command = $"/root/.dotnet/tools/{ServiceId}";
         else Command = $"/var/bin/{ServiceId}";
         string Directory = Path.GetDirectoryName(Command)!;

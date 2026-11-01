@@ -290,6 +290,8 @@ public class Proxy
     {
 #if Server
         Logger.LogInformation($"Shutdown {Application.Name}.");
+        // Stop listening first, and for good: otherwise the next request would start the app again, and ListenAsync would never end.
+        Cancel.Cancel();
         using var mylock = await Lock.LockAsync();
         if (Server != null)
         {

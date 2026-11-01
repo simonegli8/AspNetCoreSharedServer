@@ -1097,7 +1097,8 @@ public class Configuration
                 try
                 {
                     await server.ListenAsync();
-                    await app.SetStatusAsync(Status.Stopped, null, false, false);
+                    // The listener ends when the app is taken offline or removed. Not when it was changed: the new listener has set the status.
+                    await app.SetStoppedAsync();
                 }
                 catch (Exception)
                 {
@@ -1118,7 +1119,8 @@ public class Configuration
                 try
                 {
                     await server.ListenAsync();
-                    await app.SetStatusAsync(Status.Stopped, null, false, false);
+                    // The listener ends when the app is taken offline or removed. Not when it was changed: the new listener has set the status.
+                    await app.SetStoppedAsync();
                 }
                 catch (Exception)
                 {
@@ -1838,6 +1840,23 @@ public class Application
             if (disableChanged && load) _ = Task.Run(() => Configuration.Current.Load(false));
         }
     }
+    /// <summary>
+    /// Records that the app is no longer listening, once its listener has ended: the status becomes Stopped if the app is offline (or the
+    /// server) and the status is still Running. Anything else is left alone: an Error with its message, or the Running of a listener that
+    /// replaced this one after the app was changed.
+    /// </summary>
+    internal async Task SetStoppedAsync()
+    {
+        using var mutex = await AspServer.LockAsync();
+        var config = Configuration.Current;
+        var app = config.Applications?[Name];
+        if (app != null && app.Status == Status.Running && (app.Offline || config.Offline))
+        {
+            app.Status = Status.Stopped;
+            await config.SaveAsync(true, false);
+        }
+    }
+
     internal async Task SetStatusAsync(Status status, string? error, bool disable = false, bool load = true)
     {
         using var mutex = await AspServer.LockAsync();

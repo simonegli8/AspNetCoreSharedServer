@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 using System.Text;
 
 namespace AspNetCoreSharedServer;
@@ -65,16 +66,28 @@ public class Unix
     /// <summary>"#1001" is how sudo names a numeric id. sudo resolves it itself, so it is not looked up here.</summary>
     static bool IsNumericId(string name) => name.Length > 1 && name[0] == '#' && name.Skip(1).All(c => c >= '0' && c <= '9');
 
+    [SupportedOSPlatform("linux")]
+    [SupportedOSPlatform("macos")]
+    [SupportedOSPlatform("freebsd")]
     /// <summary>True if the user account exists (or is a numeric "#id", which sudo resolves).</summary>
+    [SupportedOSPlatform("linux")]
+    [SupportedOSPlatform("macos")]
+    [SupportedOSPlatform("freebsd")]
     public static bool UserExists(string user) => !string.IsNullOrEmpty(user) && (IsNumericId(user) || getpwnam(user) != IntPtr.Zero);
 
     /// <summary>True if the group exists (or is a numeric "#id", which sudo resolves).</summary>
+    [SupportedOSPlatform("linux")]
+    [SupportedOSPlatform("macos")]
+    [SupportedOSPlatform("freebsd")]
     public static bool GroupExists(string group) => !string.IsNullOrEmpty(group) && (IsNumericId(group) || getgrnam(group) != IntPtr.Zero);
 
     /// <summary>
     /// True if the user belongs to the group, either as its primary group or as a listed member.
     /// False if the user or group does not exist.
     /// </summary>
+    [SupportedOSPlatform("linux")]
+    [SupportedOSPlatform("macos")]
+    [SupportedOSPlatform("freebsd")]
     public static bool IsUserInGroup(string user, string group)
     {
         var pwdPtr = getpwnam(user);
@@ -99,15 +112,27 @@ public class Unix
 
     public const int SIGINT = 2;
 
+    [SupportedOSPlatform("linux")]
+    [SupportedOSPlatform("macos")]
+    [SupportedOSPlatform("freebsd")]
     [DllImport("libc", SetLastError = true)]
     public static extern int kill(int pid, int sig);
 
 
+    [SupportedOSPlatform("linux")]
+    [SupportedOSPlatform("macos")]
+    [SupportedOSPlatform("freebsd")]
     [DllImport("libc")]
     public static extern uint getuid();
 
+    [SupportedOSPlatform("linux")]
+    [SupportedOSPlatform("macos")]
+    [SupportedOSPlatform("freebsd")]
     public static bool IsRoot => getuid() == 0;
 
+    [SupportedOSPlatform("linux")]
+    [SupportedOSPlatform("macos")]
+    [SupportedOSPlatform("freebsd")]
     public static void SetFilePermissions(string path, UnixFileMode mode, bool resetChildPermissions = false)
     {
         if (!resetChildPermissions)
@@ -134,6 +159,9 @@ public class Unix
         }
     }
 
+    [SupportedOSPlatform("linux")]
+    [SupportedOSPlatform("macos")]
+    [SupportedOSPlatform("freebsd")]
     public static UnixFileMode GetFilePermissions(string path)
     {
         FileSystemInfo info;
@@ -148,6 +176,9 @@ public class Unix
     [DllImport("libc", SetLastError = true)]
     private static extern int chown(string path, uint owner, uint group);
 
+    [SupportedOSPlatform("linux")]
+    [SupportedOSPlatform("macos")]
+    [SupportedOSPlatform("freebsd")]
     public static void SetOwnerAndGroup(
         string path,
         string? username,
@@ -191,6 +222,9 @@ public class Unix
     /// The owner and group of a file or directory, by name. The ids come from the stat record of the operating system, whose layout
     /// differs between macOS and Linux (and between Linux architectures), see <see cref="UnixMac"/> and <see cref="UnixLinux"/>.
     /// </summary>
+    [SupportedOSPlatform("linux")]
+    [SupportedOSPlatform("macos")]
+    [SupportedOSPlatform("freebsd")]
     public static (string Owner, string Group) GetOwnerAndGroup(string path)
     {
         // The stat record also holds the mode of the file. The runtime reports it independently, which lets the readers check that the
@@ -236,7 +270,6 @@ internal static class UnixMac
 
     [DllImport("libc", EntryPoint = "stat", SetLastError = true)]
     static extern int stat(string path, byte[] buffer);
-
     public static (uint Uid, uint Gid) GetIds(string path, uint expectedMode)
     {
         var buffer = new byte[BufferSize];
