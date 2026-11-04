@@ -41,7 +41,7 @@
 		<PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
 		<!-- ACLs of files and folders, and the Windows identities (SIDs); built into .NET, a package for netstandard2.0 -->
 		<PackageReference Include="System.IO.FileSystem.AccessControl" Version="5.0.0" />
-        <PackageReference Include="EstrellasDeEsperanza.AsyncLock" Version="4.2.0" />
+        <PackageReference Include="EstrellasDeEsperanza.AsyncLock" Version="4.2.1" />
         <!--<ProjectReference Include="..\..\..\AsyncLock\AsyncLock\AsyncLock.csproj" />-->
     </ItemGroup>
 
