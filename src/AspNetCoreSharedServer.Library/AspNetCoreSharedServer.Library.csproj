@@ -2,7 +2,7 @@
 
     <PropertyGroup>
         <OutputType>Library</OutputType>
-        <TargetFramework>net10.0</TargetFramework>
+        <TargetFrameworks>net10.0;net11.0</TargetFrameworks>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
         <LangVersion>14</LangVersion>
@@ -113,7 +113,7 @@
         </Content>
     </ItemGroup>
 
-    <ItemGroup>
+    <ItemGroup Condition="$(TargetFramework) == 'net10.0'">
         <PackageReference Include="System.Management" Version="10.0.0" />
         <!--<PackageReference Include="MedallionShell" Version="1.6.2" />-->
         <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.0" />
@@ -126,5 +126,19 @@
         <PackageReference Include="SyslogNet.ClientStandard" Version="0.3.4" />
         <PackageReference Include="Hardware.Info" Version="110.0.0.1" />
         <PackageReference Include="System.ServiceProcess.ServiceController" Version="10.0.0" />
+    </ItemGroup>
+    <ItemGroup Condition="$(TargetFramework) == 'net11.0'">
+        <PackageReference Include="System.Management" Version="11.0.0" />
+        <!--<PackageReference Include="MedallionShell" Version="1.6.2" />-->
+        <PackageReference Include="Microsoft.Extensions.Hosting" Version="11.0.0" />
+        <PackageReference Include="Mono.Cecil" Version="0.11.6" />
+        <!--<PackageReference Include="Mono.Posix" Version="7.1.0-final.1.21458.1" />
+		<PackageReference Include="Mono.Unix" Version="7.1.0-final.1.21458.1" />-->
+        <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
+        <PackageReference Include="EstrellasDeEsperanza.AsyncLock" Version="4.2.1" />
+        <PackageReference Include="plist-cil" Version="2.3.1" />
+        <PackageReference Include="SyslogNet.ClientStandard" Version="0.3.4" />
+        <PackageReference Include="Hardware.Info" Version="110.0.0.1" />
+        <PackageReference Include="System.ServiceProcess.ServiceController" Version="11.0.0" />
     </ItemGroup>
 </Project>
